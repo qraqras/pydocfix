@@ -1,8 +1,5 @@
 # pydocfixについて
 - Pythonのdocstringのリンターです
-- [pydocstring](https://github.com/qraqras/pydocstring)を使用することでauto-fixを実現します
-- Rust製のCLIツールです
-
-# 実装時の注意
-- pydocstringは私が開発しているので自由に修正可能です
-- pydoclintやruffでは実現できない機能を中心に実装します
+- Pythonで実装します
+- docstringパーサに[pydocstring-rs](https://pypi.org/project/pydocstring-rs)を採用します
+- pydocstyleやpydoclint、ruffなどを参考にしますが、auto-fixを最大の特徴とします

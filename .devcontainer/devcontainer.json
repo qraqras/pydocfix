@@ -3,15 +3,14 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
-    "postCreateCommand": "git config core.hooksPath .githooks && if [ ! -d /workspaces/pydocstring ]; then git clone https://github.com/qraqras/pydocstring.git /workspaces/pydocstring; fi",
     "customizations": {
         "vscode": {
             "extensions": [
-                "rust-lang.rust-analyzer"
+                "ms-python.python",
+                "charliermarsh.ruff"
             ],
             "settings": {
-                "editor.formatOnSave": true,
-                "rust-analyzer.checkOnSave.command": "clippy"
+                "editor.formatOnSave": true
             }
         }
     }
