@@ -1,4 +1,4 @@
-"""Rule D200 – Summary should end with a period."""
+"""Rule D200 - Summary should end with a period."""
 
 from __future__ import annotations
 

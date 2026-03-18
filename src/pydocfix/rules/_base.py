@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import ast
-import bisect
 import enum
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from functools import cached_property
 from itertools import pairwise
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -124,42 +122,23 @@ class DiagnoseContext:
     docstring_stmt: ast.stmt
     docstring_location: DocstringLocation
 
-    @cached_property
-    def _line_offsets(self) -> list[int]:
-        """Byte offset of each line (0-indexed) within the docstring."""
-        offsets = [0]
-        for i, ch in enumerate(self.docstring_text):
-            if ch == "\n":
-                offsets.append(i + 1)
-        return offsets
-
     def cst_node_range(self, node: Node | Token | None = None) -> Range:
         """Convert a CST node/token byte range to a file-level Range."""
         if node is None:
             node = self.target_cst
+        ds_offset = self.docstring_location.content_offset
+        start_lc = self.docstring_cst.line_col(node.range.start)
+        end_lc = self.docstring_cst.line_col(node.range.end)
         return Range(
             start=Offset(
-                self._offset_to_line(node.range.start),
-                self._offset_to_col(node.range.start),
+                ds_offset.lineno + start_lc.lineno - 1,
+                ds_offset.col + start_lc.col if start_lc.lineno == 1 else start_lc.col,
             ),
             end=Offset(
-                self._offset_to_line(node.range.end),
-                self._offset_to_col(node.range.end),
+                ds_offset.lineno + end_lc.lineno - 1,
+                ds_offset.col + end_lc.col if end_lc.lineno == 1 else end_lc.col,
             ),
         )
-
-    def _offset_to_line(self, offset: int) -> int:
-        """Convert a byte offset to a 1-based file line number."""
-        local_line = bisect.bisect_right(self._line_offsets, offset) - 1
-        return self.docstring_location.content_offset.lineno + local_line
-
-    def _offset_to_col(self, offset: int) -> int:
-        """Convert a byte offset to a 0-based file column number."""
-        local_line = bisect.bisect_right(self._line_offsets, offset) - 1
-        col_in_content = offset - self._line_offsets[local_line]
-        if local_line == 0:
-            return self.docstring_location.content_offset.col + col_in_content
-        return col_in_content
 
 
 def replace_token(token: Token, new_text: str) -> Edit:
@@ -178,17 +157,20 @@ def delete_range(start: int, end: int) -> Edit:
 
 
 def apply_edits(source: str, edits: Iterable[Edit]) -> str:
-    """Apply Edits to a docstring, in reverse-offset order."""
+    """Apply Edits to a docstring, in reverse-offset order.
+
+    Edit offsets are UTF-8 byte positions (as returned by pydocstring-rs).
+    """
     sorted_edits: Final = sorted(edits, key=lambda e: e.start, reverse=True)
     # Validate no overlaps
     for prev, curr in pairwise(sorted_edits):
         if curr.end > prev.start:
             msg = f"Overlapping edits: [{curr.start}:{curr.end}] and [{prev.start}:{prev.end}]"
             raise ValueError(msg)
-    result = source
+    buf = source.encode("utf-8")
     for edit in sorted_edits:
-        result = result[: edit.start] + edit.new_text + result[edit.end :]
-    return result
+        buf = buf[: edit.start] + edit.new_text.encode("utf-8") + buf[edit.end :]
+    return buf.decode("utf-8")
 
 
 def is_applicable(diag: Diagnostic, unsafe_fixes: bool) -> bool:

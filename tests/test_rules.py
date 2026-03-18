@@ -8,9 +8,10 @@ from pathlib import Path
 from pydocstring import Node, SyntaxKind, Token, parse_google, parse_numpy
 
 from pydocfix.rules import (
-    Applicability,
     D200,
     D401,
+    D402,
+    Applicability,
     DiagnoseContext,
     Diagnostic,
     DocstringLocation,
@@ -166,12 +167,17 @@ class TestRegistry:
         registry = build_registry()
         assert registry.get("D401") is not None
 
+    def test_build_registry_contains_d402(self):
+        registry = build_registry()
+        assert registry.get("D402") is not None
+
     def test_all_rules(self):
         registry = build_registry()
         rules = registry.all_rules()
         codes = [r.code for r in rules]
         assert "D200" in codes
         assert "D401" in codes
+        assert "D402" in codes
 
     def test_rules_for_kind(self):
         registry = build_registry()
@@ -180,6 +186,8 @@ class TestRegistry:
         assert registry.rules_for_kind(SyntaxKind.COLON) == []
         google_arg_rules = registry.rules_for_kind(SyntaxKind.GOOGLE_ARG)
         assert any(r.code == "D401" for r in google_arg_rules)
+        google_return_rules = registry.rules_for_kind(SyntaxKind.GOOGLE_RETURNS)
+        assert any(r.code == "D402" for r in google_return_rules)
 
 
 # ── Helpers for D401 ─────────────────────────────────────────────────
@@ -328,8 +336,8 @@ class TestD401GoogleParam:
         assert diag is None
 
 
-class TestD401GoogleReturn:
-    """D401: return type mismatch in Google-style docstrings."""
+class TestD402GoogleReturn:
+    """D402: return type mismatch in Google-style docstrings."""
 
     def test_mismatch_detected(self):
         ds = "Summary.\n\nReturns:\n    str: The result.\n"
@@ -338,8 +346,9 @@ class TestD401GoogleReturn:
         rets = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_RETURNS)
         assert len(rets) == 1
         ctx = _make_d401_ctx_google(ds, func, rets[0])
-        diag = D401().diagnose(ctx)
+        diag = D402().diagnose(ctx)
         assert diag is not None
+        assert diag.rule == "D402"
         assert "'str'" in diag.message
         assert "'int'" in diag.message
 
@@ -349,7 +358,7 @@ class TestD401GoogleReturn:
         parsed = parse_google(ds)
         rets = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_RETURNS)
         ctx = _make_d401_ctx_google(ds, func, rets[0])
-        diag = D401().diagnose(ctx)
+        diag = D402().diagnose(ctx)
         assert diag is None
 
     def test_no_return_annotation_no_diagnostic(self):
@@ -358,7 +367,7 @@ class TestD401GoogleReturn:
         parsed = parse_google(ds)
         rets = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_RETURNS)
         ctx = _make_d401_ctx_google(ds, func, rets[0])
-        diag = D401().diagnose(ctx)
+        diag = D402().diagnose(ctx)
         assert diag is None
 
     def test_fix_replaces_return_type(self):
@@ -367,7 +376,7 @@ class TestD401GoogleReturn:
         parsed = parse_google(ds)
         rets = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_RETURNS)
         ctx = _make_d401_ctx_google(ds, func, rets[0])
-        diag = D401().diagnose(ctx)
+        diag = D402().diagnose(ctx)
         assert diag is not None
         result = apply_edits(ds, diag.fix.edits)
         assert "bool:" in result
@@ -413,7 +422,7 @@ class TestD401Numpy:
             docstring_stmt=_dummy_stmt(2, 4),
             docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
         )
-        diag = D401().diagnose(ctx)
+        diag = D402().diagnose(ctx)
         assert diag is not None
         assert "'str'" in diag.message
         assert "'int'" in diag.message

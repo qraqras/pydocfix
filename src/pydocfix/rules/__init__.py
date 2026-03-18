@@ -22,12 +22,14 @@ from pydocfix.rules._base import (
 )
 from pydocfix.rules.d200 import D200
 from pydocfix.rules.d401 import D401
+from pydocfix.rules.d402 import D402
 
 __all__ = [
     "Applicability",
     "BaseRule",
     "D200",
     "D401",
+    "D402",
     "DiagnoseContext",
     "Diagnostic",
     "DocstringLocation",
@@ -48,6 +50,7 @@ __all__ = [
 _BUILTIN_RULES: list[type[BaseRule]] = [
     D200,
     D401,
+    D402,
 ]
 
 

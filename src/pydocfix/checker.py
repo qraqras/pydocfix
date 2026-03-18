@@ -62,7 +62,12 @@ def _extract_docstrings(source: str, filepath: Path) -> Iterator[_DocstringInfo]
 _REGEX_OPENING_QUOTES: Final = re.compile(r'([rRuUfFbB]{0,2})("""|\'\'\'|"|\')')
 
 
-def _locate_docstring(ds_stmt: ast.stmt, lines: Sequence[str], line_offsets: Sequence[int]) -> DocstringLocation | None:
+def _locate_docstring(
+    ds_stmt: ast.stmt,
+    lines: Sequence[str],
+    line_offsets: Sequence[int],
+    source_bytes: bytes,
+) -> DocstringLocation | None:
     """Compute all positional info for a docstring expression at once.
 
     Returns None if the opening quote cannot be located.
@@ -79,9 +84,8 @@ def _locate_docstring(ds_stmt: ast.stmt, lines: Sequence[str], line_offsets: Seq
     byte_start = line_offsets[ds_stmt.lineno - 1] + ds_stmt.col_offset
     byte_end = line_offsets[ds_stmt.end_lineno - 1] + ds_stmt.end_col_offset
 
-    # Closing quote from the end line
-    end_line: Final = lines[ds_stmt.end_lineno - 1]
-    closing: Final = end_line[ds_stmt.end_col_offset - len(quote_chars) : ds_stmt.end_col_offset]
+    # Extract closing quote directly from pre-encoded source bytes
+    closing: Final = source_bytes[byte_end - len(quote_chars) : byte_end].decode("ascii")
 
     return DocstringLocation(
         content_offset=Offset(ds_stmt.lineno, matched.end()),
@@ -123,19 +127,22 @@ def check_file(
     Returns (all_diagnostics, fixed_source_or_none, indices_of_fixed_diagnostics).
     """
     lines: Final = source.splitlines(keepends=True)
-    line_offsets: Final = [0]
-    for ln in lines:
-        line_offsets.append(line_offsets[-1] + len(ln))
+    source_bytes: Final = source.encode("utf-8")
+    # Build line-start byte-offset table by scanning the byte string once
+    line_offsets: Final[list[int]] = [0]
+    pos = -1
+    while (pos := source_bytes.find(b"\n", pos + 1)) != -1:
+        line_offsets.append(pos + 1)
     all_diagnostics: list[Diagnostic] = []
     fixed_indices: set[int] = set()
-    file_edits: list[tuple[int, int, str]] = []
+    file_edits: list[tuple[int, int, bytes]] = []
 
     for ds_content, parent_ast, ds_stmt in _extract_docstrings(source, filepath):
         style = pydocstring.detect_style(ds_content)
         parsed = pydocstring.parse_numpy(ds_content) if style == Style.NUMPY else pydocstring.parse_google(ds_content)
 
         # Determine where the docstring content starts (after opening triple-quote).
-        ds_loc = _locate_docstring(ds_stmt, lines, line_offsets)
+        ds_loc = _locate_docstring(ds_stmt, lines, line_offsets, source_bytes)
         if ds_loc is None:
             continue
 
@@ -180,13 +187,20 @@ def check_file(
 
             if accepted_edits:
                 new_raw = apply_edits(ds_content, accepted_edits)
-                file_edits.append((ds_loc.byte_start, ds_loc.byte_end, ds_loc.opening + new_raw + ds_loc.closing))
+                file_edits.append(
+                    (
+                        ds_loc.byte_start,
+                        ds_loc.byte_end,
+                        (ds_loc.opening + new_raw + ds_loc.closing).encode("utf-8"),
+                    )
+                )
 
     fixed_source: str | None = None
     if file_edits:
         file_edits.sort(key=lambda e: e[0], reverse=True)
-        fixed_source = source
+        buf = source_bytes
         for start, end, replacement in file_edits:
-            fixed_source = fixed_source[:start] + replacement + fixed_source[end:]
+            buf = buf[:start] + replacement + buf[end:]
+        fixed_source = buf.decode("utf-8")
 
     return all_diagnostics, fixed_source, frozenset(fixed_indices)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from pydocfix.checker import build_rules_map, check_file
-from pydocfix.rules import D200, D401
+from pydocfix.rules import D200, D401, D402
 
 
 def _diagnose(filepath: Path, kind_map) -> list:
@@ -71,9 +71,9 @@ class TestD401Integration:
         f.write_text(
             'def foo() -> int:\n    """Summary.\n\n    Returns:\n        str: The result.\n    """\n    pass\n'
         )
-        diags = _diagnose(f, build_rules_map([D401()]))
+        diags = _diagnose(f, build_rules_map([D402()]))
         assert len(diags) == 1
-        assert diags[0].rule == "D401"
+        assert diags[0].rule == "D402"
 
     def test_no_mismatch(self, tmp_path: Path):
         f = tmp_path / "example.py"
@@ -89,7 +89,7 @@ class TestD401Integration:
             '    """\n'
             "    pass\n"
         )
-        diags = _diagnose(f, build_rules_map([D401()]))
+        diags = _diagnose(f, build_rules_map([D401(), D402()]))
         assert diags == []
 
     def test_no_type_in_docstring(self, tmp_path: Path):
