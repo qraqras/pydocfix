@@ -162,9 +162,12 @@ def check_file(
                 docstring_location=ds_loc,
             )
             for rule in matching_rules:
-                diag = rule.diagnose(ctx)
-                if diag is not None:
-                    ds_diagnostics.append(diag)
+                result = rule.diagnose(ctx)
+                if result is not None:
+                    if isinstance(result, list):
+                        ds_diagnostics.extend(result)
+                    else:
+                        ds_diagnostics.append(result)
 
         base_idx = len(all_diagnostics)
         all_diagnostics.extend(ds_diagnostics)

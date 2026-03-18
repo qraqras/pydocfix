@@ -189,7 +189,7 @@ class BaseRule:
     message: str = ""
     target_kinds: set[SyntaxKind] = set()
 
-    def diagnose(self, ctx: DiagnoseContext) -> Diagnostic | None:
+    def diagnose(self, ctx: DiagnoseContext) -> Diagnostic | list[Diagnostic] | None:
         raise NotImplementedError
 
     # Helper -----------------------------------------------------------

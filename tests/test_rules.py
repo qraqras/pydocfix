@@ -11,6 +11,11 @@ from pydocfix.rules import (
     D200,
     D401,
     D402,
+    D403,
+    D404,
+    D405,
+    D406,
+    D407,
     Applicability,
     DiagnoseContext,
     Diagnostic,
@@ -444,3 +449,875 @@ class TestD401Numpy:
         )
         diag = D401().diagnose(ctx)
         assert diag is None
+
+
+# ── D403 Tests ───────────────────────────────────────────────────────
+
+
+class TestD403GoogleParam:
+    """D403: parameter name missing prefix in Google-style docstrings."""
+
+    def test_kwargs_missing_prefix(self):
+        ds = "Summary.\n\nArgs:\n    kwargs (int): desc.\n"
+        func = "def foo(**kwargs: int):\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        assert len(args) == 1
+        ctx = _make_d401_ctx_google(ds, func, args[0])
+        diag = D403().diagnose(ctx)
+        assert diag is not None
+        assert diag.rule == "D403"
+        assert "'kwargs'" in diag.message
+        assert "'**kwargs'" in diag.message
+
+    def test_args_missing_prefix(self):
+        ds = "Summary.\n\nArgs:\n    args (int): desc.\n"
+        func = "def foo(*args: int):\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        ctx = _make_d401_ctx_google(ds, func, args[0])
+        diag = D403().diagnose(ctx)
+        assert diag is not None
+        assert "'args'" in diag.message
+        assert "'*args'" in diag.message
+
+    def test_kwargs_with_prefix_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    **kwargs (int): desc.\n"
+        func = "def foo(**kwargs: int):\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        ctx = _make_d401_ctx_google(ds, func, args[0])
+        diag = D403().diagnose(ctx)
+        assert diag is None
+
+    def test_args_with_prefix_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    *args (int): desc.\n"
+        func = "def foo(*args: int):\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        ctx = _make_d401_ctx_google(ds, func, args[0])
+        diag = D403().diagnose(ctx)
+        assert diag is None
+
+    def test_regular_param_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): desc.\n"
+        func = "def foo(x: int):\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        ctx = _make_d401_ctx_google(ds, func, args[0])
+        diag = D403().diagnose(ctx)
+        assert diag is None
+
+    def test_fix_adds_prefix(self):
+        ds = "Summary.\n\nArgs:\n    kwargs (int): desc.\n"
+        func = "def foo(**kwargs: int):\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        ctx = _make_d401_ctx_google(ds, func, args[0])
+        diag = D403().diagnose(ctx)
+        assert diag is not None
+        assert diag.fix.applicability == Applicability.SAFE
+        result = apply_edits(ds, diag.fix.edits)
+        assert "**kwargs" in result
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    kwargs (int): desc.\n"
+        func = "class Foo:\n    pass\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        tree = ast.parse(func)
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=args[0],
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        diag = D403().diagnose(ctx)
+        assert diag is None
+
+
+class TestD403NumpyParam:
+    """D403: parameter name missing prefix in NumPy-style docstrings."""
+
+    def test_kwargs_missing_prefix(self):
+        ds = "Summary.\n\nParameters\n----------\nkwargs : int\n    desc.\n"
+        func = "def foo(**kwargs: int):\n    pass\n"
+        parsed = parse_numpy(ds)
+        params = _find_cst_nodes(parsed, SyntaxKind.NUMPY_PARAMETER)
+        assert len(params) == 1
+        tree = ast.parse(func)
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=params[0],
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(2, 4),
+            docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+        )
+        diag = D403().diagnose(ctx)
+        assert diag is not None
+        assert "'kwargs'" in diag.message
+        assert "'**kwargs'" in diag.message
+
+    def test_kwargs_with_prefix_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\n**kwargs : int\n    desc.\n"
+        func = "def foo(**kwargs: int):\n    pass\n"
+        parsed = parse_numpy(ds)
+        params = _find_cst_nodes(parsed, SyntaxKind.NUMPY_PARAMETER)
+        tree = ast.parse(func)
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=params[0],
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(2, 4),
+            docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+        )
+        diag = D403().diagnose(ctx)
+        assert diag is None
+
+
+# ── Helpers for D404 ─────────────────────────────────────────────────
+
+
+def _make_d404_ctx_google(ds_text: str, func_src: str) -> DiagnoseContext:
+    """Build a DiagnoseContext targeting the GOOGLE_SECTION node."""
+    parsed = parse_google(ds_text)
+    sections = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_SECTION)
+    # Pick the first section that contains GOOGLE_ARG children
+    section = None
+    for s in sections:
+        if any(isinstance(c, Node) and c.kind == SyntaxKind.GOOGLE_ARG for c in s.children):
+            section = s
+            break
+    assert section is not None, "No Args section found"
+    tree = ast.parse(func_src)
+    func_node = tree.body[0]
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=section,
+        parent_ast=func_node,
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+def _make_d404_ctx_numpy(ds_text: str, func_src: str) -> DiagnoseContext:
+    """Build a DiagnoseContext targeting the NUMPY_SECTION node."""
+    parsed = parse_numpy(ds_text)
+    sections = _find_cst_nodes(parsed, SyntaxKind.NUMPY_SECTION)
+    section = None
+    for s in sections:
+        if any(isinstance(c, Node) and c.kind == SyntaxKind.NUMPY_PARAMETER for c in s.children):
+            section = s
+            break
+    assert section is not None, "No Parameters section found"
+    tree = ast.parse(func_src)
+    func_node = tree.body[0]
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=section,
+        parent_ast=func_node,
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+# ── D404 Tests ───────────────────────────────────────────────────────
+
+
+class TestD404GoogleParam:
+    """D404: missing parameter in Google-style docstrings."""
+
+    def test_missing_param_detected(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert diags[0].rule == "D404"
+        assert "'y'" in diags[0].message
+
+    def test_all_documented_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n    y (str): The y.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_multiple_missing(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int, y: str, z: float):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 2
+        names = {d.message for d in diags}
+        assert any("'y'" in m for m in names)
+        assert any("'z'" in m for m in names)
+
+    def test_self_excluded(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(self, x: int):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_cls_excluded(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(cls, x: int):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_varargs_missing(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int, *args: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert "'*args'" in diags[0].message
+
+    def test_kwargs_missing(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int, **kwargs: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert "'**kwargs'" in diags[0].message
+
+    def test_varargs_documented_with_prefix(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n    *args (str): Extra.\n"
+        func = "def foo(x: int, *args: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_varargs_documented_without_prefix(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n    args (str): Extra.\n"
+        func = "def foo(x: int, *args: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_kwonly_missing(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int, *, key: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert "'key'" in diags[0].message
+
+    def test_no_annotation(self):
+        ds = "Summary.\n\nArgs:\n    x: The x.\n"
+        func = "def foo(x, y):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert "'y'" in diags[0].message
+
+    def test_fix_inserts_stub_with_type(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert diags[0].fix is not None
+        assert diags[0].fix.applicability == Applicability.UNSAFE
+        result = apply_edits(ds, diags[0].fix.edits)
+        assert "y (str):" in result
+        assert "y (str): " not in result or result.endswith("y (str):")
+        # Original content preserved
+        assert "x (int): The x." in result
+
+    def test_fix_inserts_stub_without_type(self):
+        ds = "Summary.\n\nArgs:\n    x: The x.\n"
+        func = "def foo(x, y):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        result = apply_edits(ds, diags[0].fix.edits)
+        assert "\n    y:" in result
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        parsed = parse_google(ds)
+        sections = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_SECTION)
+        section = sections[0]
+        tree = ast.parse("class Foo:\n    pass\n")
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=section,
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_returns_section_ignored(self):
+        """D404 should not flag Returns sections."""
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n\nReturns:\n    int: The result.\n"
+        func = "def foo(x: int) -> int:\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+
+class TestD404NumpyParam:
+    """D404: missing parameter in NumPy-style docstrings."""
+
+    def test_missing_param_detected(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        assert "'y'" in diags[0].message
+
+    def test_all_documented_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\ny : str\n    The y.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+    def test_fix_inserts_numpy_stub_with_type(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        result = apply_edits(ds, diags[0].fix.edits)
+        assert "y : str" in result
+        assert "Description." not in result
+
+    def test_fix_inserts_numpy_stub_without_type(self):
+        ds = "Summary.\n\nParameters\n----------\nx\n    The x.\n"
+        func = "def foo(x, y):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        diags = D404().diagnose(ctx)
+        assert len(diags) == 1
+        result = apply_edits(ds, diags[0].fix.edits)
+        assert "\ny" in result
+
+    def test_self_excluded(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\n"
+        func = "def foo(self, x: int):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        diags = D404().diagnose(ctx)
+        assert diags == []
+
+
+class TestD404Registry:
+    """D404 is registered correctly."""
+
+    def test_registry_contains_d404(self):
+        registry = build_registry()
+        assert registry.get("D404") is not None
+
+    def test_rules_for_google_section(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.GOOGLE_SECTION)
+        assert any(r.code == "D404" for r in rules)
+
+    def test_rules_for_numpy_section(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.NUMPY_SECTION)
+        assert any(r.code == "D404" for r in rules)
+
+
+# ── Helpers for D405 ─────────────────────────────────────────────────
+
+
+def _make_d405_ctx_google(ds_text: str, func_src: str, arg_index: int = 0) -> DiagnoseContext:
+    """Build a DiagnoseContext targeting a GOOGLE_ARG node."""
+    parsed = parse_google(ds_text)
+    args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+    assert len(args) > arg_index
+    tree = ast.parse(func_src)
+    func_node = tree.body[0]
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=args[arg_index],
+        parent_ast=func_node,
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+def _make_d405_ctx_numpy(ds_text: str, func_src: str, param_index: int = 0) -> DiagnoseContext:
+    """Build a DiagnoseContext targeting a NUMPY_PARAMETER node."""
+    parsed = parse_numpy(ds_text)
+    params = _find_cst_nodes(parsed, SyntaxKind.NUMPY_PARAMETER)
+    assert len(params) > param_index
+    tree = ast.parse(func_src)
+    func_node = tree.body[0]
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=params[param_index],
+        parent_ast=func_node,
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+# ── D405 Tests ───────────────────────────────────────────────────────
+
+
+class TestD405GoogleParam:
+    """D405: extra parameter in Google-style docstrings."""
+
+    def test_extra_param_detected(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n    y (str): The y.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d405_ctx_google(ds, func, arg_index=1)
+        diag = D405().diagnose(ctx)
+        assert diag is not None
+        assert diag.rule == "D405"
+        assert "'y'" in diag.message
+
+    def test_valid_param_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d405_ctx_google(ds, func, arg_index=0)
+        diag = D405().diagnose(ctx)
+        assert diag is None
+
+    def test_self_not_in_signature_check(self):
+        """self is in func.args but not user-visible; doc param named 'self' should be flagged."""
+        ds = "Summary.\n\nArgs:\n    self (Foo): This.\n"
+        func = "def foo(self):\n    pass\n"
+        ctx = _make_d405_ctx_google(ds, func, arg_index=0)
+        # 'self' IS in func.args, so not flagged as extra
+        diag = D405().diagnose(ctx)
+        assert diag is None
+
+    def test_star_args_with_prefix_valid(self):
+        ds = "Summary.\n\nArgs:\n    *args: Extra.\n"
+        func = "def foo(*args):\n    pass\n"
+        ctx = _make_d405_ctx_google(ds, func, arg_index=0)
+        diag = D405().diagnose(ctx)
+        assert diag is None
+
+    def test_star_args_without_prefix_valid(self):
+        ds = "Summary.\n\nArgs:\n    args: Extra.\n"
+        func = "def foo(*args):\n    pass\n"
+        ctx = _make_d405_ctx_google(ds, func, arg_index=0)
+        diag = D405().diagnose(ctx)
+        assert diag is None
+
+    def test_fix_deletes_entry(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n    y (str): The y.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d405_ctx_google(ds, func, arg_index=1)
+        diag = D405().diagnose(ctx)
+        assert diag is not None
+        assert diag.fix is not None
+        assert diag.fix.applicability == Applicability.UNSAFE
+        result = apply_edits(ds, diag.fix.edits)
+        assert "x (int): The x." in result
+        assert "y (str)" not in result
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        tree = ast.parse("class Foo:\n    pass\n")
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=args[0],
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        diag = D405().diagnose(ctx)
+        assert diag is None
+
+
+class TestD405NumpyParam:
+    """D405: extra parameter in NumPy-style docstrings."""
+
+    def test_extra_param_detected(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\ny : str\n    The y.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d405_ctx_numpy(ds, func, param_index=1)
+        diag = D405().diagnose(ctx)
+        assert diag is not None
+        assert "'y'" in diag.message
+
+    def test_valid_param_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d405_ctx_numpy(ds, func, param_index=0)
+        diag = D405().diagnose(ctx)
+        assert diag is None
+
+    def test_fix_deletes_entry(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\ny : str\n    The y.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d405_ctx_numpy(ds, func, param_index=1)
+        diag = D405().diagnose(ctx)
+        assert diag is not None
+        result = apply_edits(ds, diag.fix.edits)
+        assert "x : int" in result
+        assert "y : str" not in result
+
+
+# ── Helpers for D406 ─────────────────────────────────────────────────
+
+
+def _make_d406_ctx_google(ds_text: str, func_src: str) -> DiagnoseContext:
+    """Build a DiagnoseContext targeting the GOOGLE_DOCSTRING root node."""
+    parsed = parse_google(ds_text)
+    tree = ast.parse(func_src)
+    func_node = tree.body[0]
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=parsed.node,
+        parent_ast=func_node,
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+def _make_d406_ctx_numpy(ds_text: str, func_src: str) -> DiagnoseContext:
+    """Build a DiagnoseContext targeting the NUMPY_DOCSTRING root node."""
+    parsed = parse_numpy(ds_text)
+    tree = ast.parse(func_src)
+    func_node = tree.body[0]
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=parsed.node,
+        parent_ast=func_node,
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+# ── D406 Tests ───────────────────────────────────────────────────────
+
+
+class TestD406Google:
+    """D406: missing Args section in Google-style docstrings."""
+
+    def test_missing_section_detected(self):
+        ds = "Summary."
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+        assert diag.rule == "D406"
+
+    def test_no_params_no_diagnostic(self):
+        ds = "Summary."
+        func = "def foo():\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is None
+
+    def test_only_self_no_diagnostic(self):
+        ds = "Summary."
+        func = "def foo(self):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is None
+
+    def test_has_args_section_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is None
+
+    def test_returns_section_only_still_flagged(self):
+        ds = "Summary.\n\nReturns:\n    int: The result.\n"
+        func = "def foo(x: int) -> int:\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+
+    def test_fix_inserts_section(self):
+        ds = "Summary."
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+        assert diag.fix is not None
+        assert diag.fix.applicability == Applicability.UNSAFE
+        result = apply_edits(ds, diag.fix.edits)
+        assert "Args:" in result
+        assert "x (int):" in result
+        assert "y (str):" in result
+        assert "Description." not in result
+        assert "Summary." in result
+
+    def test_fix_without_annotations(self):
+        ds = "Summary."
+        func = "def foo(x, y):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+        result = apply_edits(ds, diag.fix.edits)
+        assert "\n    x:" in result
+        assert "\n    y:" in result
+        assert "Description." not in result
+
+    def test_fix_includes_varargs(self):
+        ds = "Summary."
+        func = "def foo(x: int, *args: str, **kwargs: bool):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+        result = apply_edits(ds, diag.fix.edits)
+        assert "*args (str):" in result
+        assert "**kwargs (bool):" in result
+        assert "Description." not in result
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary."
+        parsed = parse_google(ds)
+        tree = ast.parse("class Foo:\n    pass\n")
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=parsed.node,
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        diag = D406().diagnose(ctx)
+        assert diag is None
+
+    def test_async_function(self):
+        ds = "Summary."
+        func = "async def foo(x: int):\n    pass\n"
+        ctx = _make_d406_ctx_google(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+
+
+class TestD406Numpy:
+    """D406: missing Parameters section in NumPy-style docstrings."""
+
+    def test_missing_section_detected(self):
+        ds = "Summary."
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d406_ctx_numpy(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+
+    def test_has_parameters_section_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d406_ctx_numpy(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is None
+
+    def test_fix_inserts_numpy_section(self):
+        ds = "Summary."
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d406_ctx_numpy(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is not None
+        result = apply_edits(ds, diag.fix.edits)
+        assert "Parameters" in result
+        assert "----------" in result
+        assert "x : int" in result
+        assert "y : str" in result
+
+    def test_no_params_no_diagnostic(self):
+        ds = "Summary."
+        func = "def foo():\n    pass\n"
+        ctx = _make_d406_ctx_numpy(ds, func)
+        diag = D406().diagnose(ctx)
+        assert diag is None
+
+
+class TestD405D406Registry:
+    """D405 and D406 are registered correctly."""
+
+    def test_registry_contains_d405(self):
+        registry = build_registry()
+        assert registry.get("D405") is not None
+
+    def test_registry_contains_d406(self):
+        registry = build_registry()
+        assert registry.get("D406") is not None
+
+    def test_d405_rules_for_google_arg(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.GOOGLE_ARG)
+        assert any(r.code == "D405" for r in rules)
+
+    def test_d405_rules_for_numpy_parameter(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.NUMPY_PARAMETER)
+        assert any(r.code == "D405" for r in rules)
+
+    def test_d406_rules_for_google_docstring(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.GOOGLE_DOCSTRING)
+        assert any(r.code == "D406" for r in rules)
+
+    def test_d406_rules_for_numpy_docstring(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.NUMPY_DOCSTRING)
+        assert any(r.code == "D406" for r in rules)
+
+
+# ── Helpers for D407 ─────────────────────────────────────────────────
+
+
+def _make_d407_ctx_google(ds_text: str, func_src: str, arg_index: int = 0) -> DiagnoseContext:
+    parsed = parse_google(ds_text)
+    args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+    assert len(args) > arg_index
+    tree = ast.parse(func_src)
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=args[arg_index],
+        parent_ast=tree.body[0],
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+def _make_d407_ctx_numpy(ds_text: str, func_src: str, param_index: int = 0) -> DiagnoseContext:
+    parsed = parse_numpy(ds_text)
+    params = _find_cst_nodes(parsed, SyntaxKind.NUMPY_PARAMETER)
+    assert len(params) > param_index
+    tree = ast.parse(func_src)
+    return DiagnoseContext(
+        filepath=Path("test.py"),
+        docstring_text=ds_text,
+        docstring_cst=parsed,
+        target_cst=params[param_index],
+        parent_ast=tree.body[0],
+        docstring_stmt=_dummy_stmt(2, 4),
+        docstring_location=DocstringLocation(Offset(2, 7), 0, 0, '"""', '"""'),
+    )
+
+
+# ── D407 Tests ───────────────────────────────────────────────────────
+
+
+class TestD407GoogleParam:
+    """D407: empty description in Google-style docstrings."""
+
+    def test_empty_description_detected(self):
+        ds = "Summary.\n\nArgs:\n    x (int):\n    y (str): The y.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d407_ctx_google(ds, func, arg_index=0)
+        diag = D407().diagnose(ctx)
+        assert diag is not None
+        assert diag.rule == "D407"
+        assert "'x'" in diag.message
+
+    def test_has_description_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d407_ctx_google(ds, func, arg_index=0)
+        diag = D407().diagnose(ctx)
+        assert diag is None
+
+    def test_second_arg_empty(self):
+        ds = "Summary.\n\nArgs:\n    x (int): The x.\n    y (str):\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d407_ctx_google(ds, func, arg_index=1)
+        diag = D407().diagnose(ctx)
+        assert diag is not None
+        assert "'y'" in diag.message
+
+    def test_no_fix(self):
+        ds = "Summary.\n\nArgs:\n    x (int):\n    y (str): The y.\n"
+        func = "def foo(x: int, y: str):\n    pass\n"
+        ctx = _make_d407_ctx_google(ds, func, arg_index=0)
+        diag = D407().diagnose(ctx)
+        assert diag is not None
+        assert diag.fix is None
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    x (int):\n"
+        parsed = parse_google(ds)
+        args = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_ARG)
+        tree = ast.parse("class Foo:\n    pass\n")
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=args[0],
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        diag = D407().diagnose(ctx)
+        assert diag is None
+
+
+class TestD407NumpyParam:
+    """D407: empty description in NumPy-style docstrings."""
+
+    def test_empty_description_detected(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d407_ctx_numpy(ds, func, param_index=0)
+        diag = D407().diagnose(ctx)
+        assert diag is not None
+        assert "'x'" in diag.message
+
+    def test_has_description_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n    The x.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d407_ctx_numpy(ds, func, param_index=0)
+        diag = D407().diagnose(ctx)
+        assert diag is None
+
+    def test_no_fix(self):
+        ds = "Summary.\n\nParameters\n----------\nx : int\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d407_ctx_numpy(ds, func, param_index=0)
+        diag = D407().diagnose(ctx)
+        assert diag is not None
+        assert diag.fix is None
+
+
+class TestD407Registry:
+    """D407 is registered correctly."""
+
+    def test_registry_contains_d407(self):
+        registry = build_registry()
+        assert registry.get("D407") is not None
+
+    def test_rules_for_google_arg(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.GOOGLE_ARG)
+        assert any(r.code == "D407" for r in rules)
+
+    def test_rules_for_numpy_parameter(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.NUMPY_PARAMETER)
+        assert any(r.code == "D407" for r in rules)
