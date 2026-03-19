@@ -12,6 +12,7 @@ from typing import Final, NamedTuple
 import pydocstring
 from pydocstring import Style, SyntaxKind
 
+from pydocfix.config import Config
 from pydocfix.rules import (
     BaseRule,
     DiagnoseContext,
@@ -121,6 +122,7 @@ def check_file(
     *,
     fix: bool = False,
     unsafe_fixes: bool = False,
+    config: Config | None = None,
 ) -> tuple[list[Diagnostic], str | None, frozenset[int]]:
     """Diagnose and optionally fix all docstrings in one pass.
 
@@ -160,6 +162,7 @@ def check_file(
                 parent_ast=parent_ast,
                 docstring_stmt=ds_stmt,
                 docstring_location=ds_loc,
+                config=config,
             )
             for rule in matching_rules:
                 result = rule.diagnose(ctx)

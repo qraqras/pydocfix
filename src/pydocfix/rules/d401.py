@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import ast
+from typing import TYPE_CHECKING
 
 from pydocstring import Node, SyntaxKind, Token
 
 from pydocfix.rules._base import Applicability, BaseRule, DiagnoseContext, Diagnostic, Fix, replace_token
+
+if TYPE_CHECKING:
+    from pydocfix.config import Config
 
 
 class D401(BaseRule):
@@ -19,7 +23,8 @@ class D401(BaseRule):
         SyntaxKind.NUMPY_PARAMETER,
     }
 
-    def __init__(self):
+    def __init__(self, config: Config | None = None):
+        super().__init__(config)
         self._ann_cache: tuple[int, dict[str, str]] = (0, {})
 
     def _get_annotation_map(self, ast_node: ast.AST) -> dict[str, str]:

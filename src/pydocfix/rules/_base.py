@@ -21,6 +21,8 @@ from pydocstring import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from pydocfix.config import Config
+
 
 class Severity(enum.Enum):
     """Severity level for diagnostics."""
@@ -121,6 +123,8 @@ class DiagnoseContext:
     parent_ast: ast.AST
     docstring_stmt: ast.stmt
     docstring_location: DocstringLocation
+    config: Config | None = None
+    config: Config | None = None
 
     def cst_node_range(self, node: Node | Token | None = None) -> Range:
         """Convert a CST node/token byte range to a file-level Range."""
@@ -188,6 +192,9 @@ class BaseRule:
     code: str = ""
     message: str = ""
     target_kinds: set[SyntaxKind] = set()
+
+    def __init__(self, config: Config | None = None) -> None:
+        self.config = config
 
     def diagnose(self, ctx: DiagnoseContext) -> Diagnostic | list[Diagnostic] | None:
         raise NotImplementedError

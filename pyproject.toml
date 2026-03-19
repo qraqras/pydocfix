@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A Python docstring linter with auto-fix support"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Ryuma Asai" },
 ]
@@ -17,14 +17,13 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "pydocstring-rs>=0.1.1",
+    "pydocstring-rs>=0.1.3",
     "typer>=0.15",
 ]
 
@@ -39,15 +38,19 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 extraPaths = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pydocfix]
+period = "."
+ignore = ["D406"]

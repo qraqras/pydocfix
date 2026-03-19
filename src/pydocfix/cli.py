@@ -65,9 +65,11 @@ def check(
     logging.basicConfig(format="pydocfix: %(levelname)s: %(message)s", level=logging.WARNING, stream=sys.stderr)
 
     from pydocfix.checker import check_file
+    from pydocfix.config import load_config
     from pydocfix.rules import build_registry
 
-    registry: Final = build_registry()
+    config = load_config()
+    registry: Final = build_registry(ignore=config.ignore, config=config)
     kind_map: Final = registry.kind_map
 
     targets: Final = _collect_files(paths or ["."])
@@ -81,7 +83,7 @@ def check(
     for filepath in sorted(targets):
         source = filepath.read_text(encoding="utf-8")
         diagnostics, new_source, fixed_indices = check_file(
-            source, filepath, kind_map, fix=(fix or diff), unsafe_fixes=unsafe_fixes
+            source, filepath, kind_map, fix=(fix or diff), unsafe_fixes=unsafe_fixes, config=config
         )
         if not diagnostics:
             continue

@@ -16,6 +16,8 @@ from pydocfix.rules import (
     D405,
     D406,
     D407,
+    D408,
+    D409,
     Applicability,
     DiagnoseContext,
     Diagnostic,
@@ -1321,3 +1323,249 @@ class TestD407Registry:
         registry = build_registry()
         rules = registry.rules_for_kind(SyntaxKind.NUMPY_PARAMETER)
         assert any(r.code == "D407" for r in rules)
+
+
+# ── D408 Tests ───────────────────────────────────────────────────────
+
+
+class TestD408GoogleParam:
+    """D408: duplicate parameter in Google-style docstrings."""
+
+    def test_duplicate_detected(self):
+        ds = "Summary.\n\nArgs:\n    b (int): An integer.\n    b (str): A string.\n"
+        func = "def foo(b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D408().diagnose(ctx)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].rule == "D408"
+        assert "'b'" in result[0].message
+
+    def test_no_duplicate_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    a (int): An integer.\n    b (str): A string.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D408().diagnose(ctx)
+        assert result is None
+
+    def test_triple_duplicate_two_diagnostics(self):
+        ds = "Summary.\n\nArgs:\n    x: First.\n    x: Second.\n    x: Third.\n"
+        func = "def foo(x: int):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D408().diagnose(ctx)
+        assert result is not None
+        assert len(result) == 2
+
+    def test_fix_is_unsafe(self):
+        ds = "Summary.\n\nArgs:\n    b (int): An integer.\n    b (str): A string.\n"
+        func = "def foo(b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D408().diagnose(ctx)
+        assert result is not None
+        assert result[0].fix is not None
+        assert result[0].fix.applicability == Applicability.UNSAFE
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    b (int): An integer.\n    b (str): A string.\n"
+        parsed = parse_google(ds)
+        sections = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_SECTION)
+        section = next(
+            s for s in sections if any(isinstance(c, Node) and c.kind == SyntaxKind.GOOGLE_ARG for c in s.children)
+        )
+        tree = ast.parse("class Foo:\n    pass\n")
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=section,
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        result = D408().diagnose(ctx)
+        assert result is None
+
+
+class TestD408NumpyParam:
+    """D408: duplicate parameter in NumPy-style docstrings."""
+
+    def test_duplicate_detected(self):
+        ds = "Summary.\n\nParameters\n----------\nb : int\n    An integer.\nb : str\n    A string.\n"
+        func = "def foo(b: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        result = D408().diagnose(ctx)
+        assert result is not None
+        assert len(result) == 1
+        assert "'b'" in result[0].message
+
+    def test_no_duplicate_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\na : int\n    An integer.\nb : str\n    A string.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        result = D408().diagnose(ctx)
+        assert result is None
+
+
+class TestD408Registry:
+    """D408 is registered correctly."""
+
+    def test_registry_contains_d408(self):
+        registry = build_registry()
+        assert registry.get("D408") is not None
+
+    def test_rules_for_google_section(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.GOOGLE_SECTION)
+        assert any(r.code == "D408" for r in rules)
+
+    def test_rules_for_numpy_section(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.NUMPY_SECTION)
+        assert any(r.code == "D408" for r in rules)
+
+
+# ── D409 Tests ───────────────────────────────────────────────────────
+
+
+class TestD409GoogleParam:
+    """D409: wrong parameter order in Google-style docstrings."""
+
+    def test_wrong_order_detected(self):
+        ds = "Summary.\n\nArgs:\n    b: The b.\n    a: The a.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+        assert len(result) >= 1
+        assert result[0].rule == "D409"
+        assert "'b'" in result[0].message
+
+    def test_correct_order_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    a: The a.\n    b: The b.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is None
+
+    def test_partial_docs_correct_relative_order(self):
+        """Only `a` and `c` documented and in correct relative order."""
+        ds = "Summary.\n\nArgs:\n    a: The a.\n    c: The c.\n"
+        func = "def foo(a: int, b: str, c: float):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is None
+
+    def test_partial_docs_wrong_relative_order(self):
+        """Only `c` and `a` documented but in wrong relative order."""
+        ds = "Summary.\n\nArgs:\n    c: The c.\n    a: The a.\n"
+        func = "def foo(a: int, b: str, c: float):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+
+    def test_extra_param_not_in_sig_ignored(self):
+        """Unknown doc params are not counted in order comparison."""
+        ds = "Summary.\n\nArgs:\n    z: Unknown.\n    a: The a.\n    b: The b.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is None
+
+    def test_fix_reorders_params(self):
+        ds = "Summary.\n\nArgs:\n    b: The b.\n    a: The a.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+        assert result[0].fix is not None
+        assert result[0].fix.applicability == Applicability.UNSAFE
+        fixed = apply_edits(ds, result[0].fix.edits)
+        # After fix, a should come before b
+        assert fixed.index("    a:") < fixed.index("    b:")
+
+    def test_fix_only_on_first_violation(self):
+        ds = "Summary.\n\nArgs:\n    c: The c.\n    b: The b.\n    a: The a.\n"
+        func = "def foo(a: int, b: str, c: float):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+        assert result[0].fix is not None
+        assert all(d.fix is None for d in result[1:])
+
+    def test_fix_preserves_unknown_params_at_end(self):
+        ds = "Summary.\n\nArgs:\n    b: The b.\n    z: Unknown.\n    a: The a.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_google(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+        fixed = apply_edits(ds, result[0].fix.edits)
+        assert fixed.index("    a:") < fixed.index("    b:") or fixed.index("    b:") < fixed.index("    z:")
+        assert "    z:" in fixed
+
+    def test_non_function_no_diagnostic(self):
+        ds = "Summary.\n\nArgs:\n    b: The b.\n    a: The a.\n"
+        parsed = parse_google(ds)
+        sections = _find_cst_nodes(parsed, SyntaxKind.GOOGLE_SECTION)
+        section = next(
+            s for s in sections if any(isinstance(c, Node) and c.kind == SyntaxKind.GOOGLE_ARG for c in s.children)
+        )
+        tree = ast.parse("class Foo:\n    pass\n")
+        ctx = DiagnoseContext(
+            filepath=Path("test.py"),
+            docstring_text=ds,
+            docstring_cst=parsed,
+            target_cst=section,
+            parent_ast=tree.body[0],
+            docstring_stmt=_dummy_stmt(1, 0),
+            docstring_location=DocstringLocation(Offset(1, 0), 0, 0, '"""', '"""'),
+        )
+        result = D409().diagnose(ctx)
+        assert result is None
+
+
+class TestD409NumpyParam:
+    """D409: wrong parameter order in NumPy-style docstrings."""
+
+    def test_wrong_order_detected(self):
+        ds = "Summary.\n\nParameters\n----------\nb : str\n    The b.\na : int\n    The a.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+        assert len(result) >= 1
+        assert "'b'" in result[0].message
+
+    def test_correct_order_no_diagnostic(self):
+        ds = "Summary.\n\nParameters\n----------\na : int\n    The a.\nb : str\n    The b.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is None
+
+    def test_fix_reorders_params(self):
+        ds = "Summary.\n\nParameters\n----------\nb : str\n    The b.\na : int\n    The a.\n"
+        func = "def foo(a: int, b: str):\n    pass\n"
+        ctx = _make_d404_ctx_numpy(ds, func)
+        result = D409().diagnose(ctx)
+        assert result is not None
+        assert result[0].fix is not None
+        fixed = apply_edits(ds, result[0].fix.edits)
+        assert fixed.index("a : int") < fixed.index("b : str")
+
+
+class TestD409Registry:
+    """D409 is registered correctly."""
+
+    def test_registry_contains_d409(self):
+        registry = build_registry()
+        assert registry.get("D409") is not None
+
+    def test_rules_for_google_section(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.GOOGLE_SECTION)
+        assert any(r.code == "D409" for r in rules)
+
+    def test_rules_for_numpy_section(self):
+        registry = build_registry()
+        rules = registry.rules_for_kind(SyntaxKind.NUMPY_SECTION)
+        assert any(r.code == "D409" for r in rules)

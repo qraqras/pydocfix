@@ -47,9 +47,9 @@ class D405(BaseRule):
     def _build_delete_fix(ds_text: str, param_node: Node) -> Fix:
         """Build a fix that deletes the parameter entry line(s)."""
         ds_bytes = ds_text.encode("utf-8")
-        # Delete from the preceding newline to the trailing newline (inclusive)
+        # Delete from the start of the line to the trailing newline (inclusive)
         nl_before = ds_bytes.rfind(b"\n", 0, param_node.range.start)
-        start = nl_before if nl_before != -1 else param_node.range.start
+        start = nl_before + 1 if nl_before != -1 else param_node.range.start
         nl_after = ds_bytes.find(b"\n", param_node.range.end)
         end = nl_after + 1 if nl_after != -1 else param_node.range.end
         return Fix(
