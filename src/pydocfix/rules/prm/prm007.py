@@ -1,4 +1,4 @@
-"""Rule D408 - Duplicate parameter in docstring."""
+"""Rule PRM007 - Duplicate parameter in docstring."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from pydocfix.rules._base import (
 )
 
 
-class D408(BaseRule):
+class PRM007(BaseRule):
     """Docstring documents a parameter more than once."""
 
-    code = "D408"
+    code = "PDX-PRM007"
     message = "Duplicate parameter in docstring."
     target_kinds = {
         SyntaxKind.GOOGLE_SECTION,

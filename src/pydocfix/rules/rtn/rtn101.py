@@ -1,4 +1,4 @@
-"""Rule D402 - Docstring return type does not match type hint."""
+"""Rule RTN101 - Docstring return type does not match type hint."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pydocstring import Node, SyntaxKind, Token
 from pydocfix.rules._base import Applicability, BaseRule, DiagnoseContext, Diagnostic, Fix, replace_token
 
 
-class D402(BaseRule):
+class RTN101(BaseRule):
     """Docstring return type does not match type hint."""
 
-    code = "D402"
+    code = "PDX-RTN101"
     message = "Docstring return type does not match type hint."
     target_kinds = {
         SyntaxKind.GOOGLE_RETURNS,

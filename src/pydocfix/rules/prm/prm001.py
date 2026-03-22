@@ -1,4 +1,4 @@
-"""Rule D406 - Function has parameters but docstring has no Args/Parameters section."""
+"""Rule PRM001 - Function has parameters but docstring has no Args/Parameters section."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pydocstring import Node, SyntaxKind, Token
 from pydocfix.rules._base import Applicability, BaseRule, DiagnoseContext, Diagnostic, Fix, insert_at
 
 
-class D406(BaseRule):
+class PRM001(BaseRule):
     """Function has parameters but docstring has no Args/Parameters section."""
 
-    code = "D406"
+    code = "PDX-PRM001"
     message = "Missing Args/Parameters section in docstring."
     target_kinds = {
         SyntaxKind.GOOGLE_DOCSTRING,

@@ -1,4 +1,4 @@
-"""Rule D405 - Docstring has parameter not in function signature."""
+"""Rule PRM005 - Docstring has parameter not in function signature."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ def _bare_name(name: str) -> str:
     return name.lstrip("*")
 
 
-class D405(BaseRule):
+class PRM005(BaseRule):
     """Docstring documents a parameter that does not exist in the function signature."""
 
-    code = "D405"
+    code = "PDX-PRM005"
     message = "Docstring has parameter not in function signature."
     target_kinds = {
         SyntaxKind.GOOGLE_ARG,

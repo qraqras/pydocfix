@@ -1,3 +1,5 @@
+"""Rule SUM002 - Summary should end with a period."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -14,10 +16,10 @@ _DEFAULT_PERIOD: Final[str] = "."
 _PERIOD_SET: Final[frozenset[str]] = frozenset([_DEFAULT_PERIOD, "!", "?"])
 
 
-class D200(BaseRule):
+class SUM002(BaseRule):
     """Summary should end with a period."""
 
-    code = "D200"
+    code = "PDX-SUM002"
     message = "Summary should end with a period."
     target_kinds = {SyntaxKind.SUMMARY}
 

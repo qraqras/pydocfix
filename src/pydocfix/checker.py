@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Final, NamedTuple
 
 import pydocstring
-from pydocstring import Style, SyntaxKind
+from pydocstring import SyntaxKind
 
 from pydocfix.config import Config
 from pydocfix.rules import (
@@ -144,8 +144,7 @@ def check_file(
     file_edits: list[tuple[int, int, bytes]] = []
 
     for ds_content, parent_ast, ds_stmt in _extract_docstrings(source, filepath):
-        style: Style = pydocstring.detect_style(ds_content)
-        parsed = pydocstring.parse_numpy(ds_content) if style == Style.NUMPY else pydocstring.parse_google(ds_content)
+        parsed = pydocstring.parse(ds_content)
 
         # Determine where the docstring content starts (after opening triple-quote).
         ds_loc = _locate_docstring(ds_stmt, lines, line_offsets, source_bytes)

@@ -1,4 +1,4 @@
-"""Rule D407 - Docstring parameter has empty description."""
+"""Rule PRM008 - Docstring parameter has empty description."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pydocstring import Node, SyntaxKind, Token
 from pydocfix.rules._base import BaseRule, DiagnoseContext, Diagnostic
 
 
-class D407(BaseRule):
+class PRM008(BaseRule):
     """Docstring parameter has no description."""
 
-    code = "D407"
+    code = "PDX-PRM008"
     message = "Docstring parameter has empty description."
     target_kinds = {
         SyntaxKind.GOOGLE_ARG,

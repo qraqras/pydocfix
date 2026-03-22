@@ -1,4 +1,4 @@
-"""Rule D404 - Missing parameter in docstring."""
+"""Rule PRM004 - Missing parameter in docstring."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ def _bare_name(name: str) -> str:
     return name.lstrip("*")
 
 
-class D404(BaseRule):
+class PRM004(BaseRule):
     """Docstring has Args/Parameters section but is missing documented parameters."""
 
-    code = "D404"
+    code = "PDX-PRM004"
     message = "Missing parameter in docstring."
     target_kinds = {
         SyntaxKind.GOOGLE_SECTION,

@@ -25,30 +25,41 @@ from pydocfix.rules._base import (
     is_applicable,
     replace_token,
 )
-from pydocfix.rules.d200 import D200
-from pydocfix.rules.d401 import D401
-from pydocfix.rules.d402 import D402
-from pydocfix.rules.d403 import D403
-from pydocfix.rules.d404 import D404
-from pydocfix.rules.d405 import D405
-from pydocfix.rules.d406 import D406
-from pydocfix.rules.d407 import D407
-from pydocfix.rules.d408 import D408
-from pydocfix.rules.d409 import D409
+
+# --- Parameter rules ---
+from pydocfix.rules.prm.prm001 import PRM001
+from pydocfix.rules.prm.prm004 import PRM004
+from pydocfix.rules.prm.prm005 import PRM005
+from pydocfix.rules.prm.prm006 import PRM006
+from pydocfix.rules.prm.prm007 import PRM007
+from pydocfix.rules.prm.prm008 import PRM008
+from pydocfix.rules.prm.prm009 import PRM009
+from pydocfix.rules.prm.prm101 import PRM101
+
+# --- Return rules ---
+from pydocfix.rules.rtn.rtn101 import RTN101
+
+# --- Summary rules ---
+from pydocfix.rules.sum.sum002 import SUM002
 
 __all__ = [
     "Applicability",
     "BaseRule",
-    "D200",
-    "D401",
-    "D402",
-    "D403",
-    "D404",
-    "D405",
-    "D406",
-    "D407",
-    "D408",
-    "D409",
+    # **** RULES ****
+    # prm
+    "PRM001",
+    "PRM004",
+    "PRM005",
+    "PRM006",
+    "PRM007",
+    "PRM008",
+    "PRM009",
+    "PRM101",
+    # rtn
+    "RTN101",
+    # sum
+    "SUM002",
+    # **** FRAMEWORK ****
     "DiagnoseContext",
     "Diagnostic",
     "DocstringLocation",
@@ -67,16 +78,16 @@ __all__ = [
 ]
 
 _BUILTIN_RULES: list[type[BaseRule]] = [
-    D200,
-    D401,
-    D402,
-    D403,
-    D404,
-    D405,
-    D406,
-    D407,
-    D408,
-    D409,
+    SUM002,
+    PRM001,
+    PRM004,
+    PRM005,
+    PRM006,
+    PRM007,
+    PRM008,
+    PRM009,
+    PRM101,
+    RTN101,
 ]
 
 
@@ -88,7 +99,7 @@ def build_registry(
     """Create a registry populated with built-in rules.
 
     Args:
-        ignore: Rule codes to exclude (e.g. ``["D200", "D401"]``).
+        ignore: Rule codes to exclude (e.g. ``["PDX-SUM002", "PDX-PRM101"]``).
         select: Rule codes to explicitly enable. ``["ALL"]`` enables every rule
             including those with ``enabled_by_default = False``.  When empty,
             only rules whose ``enabled_by_default`` is ``True`` are active.

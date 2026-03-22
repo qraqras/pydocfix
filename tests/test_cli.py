@@ -31,7 +31,7 @@ class TestCheck:
         p.write_text('def foo():\n    """No period"""\n    pass\n')
         result = runner.invoke(cli, ["check", str(p)])
         assert result.exit_code == 1
-        assert "D200" in result.output
+        assert "PDX-SUM002" in result.output
 
     def test_check_fix_applies(self, tmp_path):
         p = tmp_path / "bad.py"

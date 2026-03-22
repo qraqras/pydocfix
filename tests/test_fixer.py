@@ -7,7 +7,7 @@ from pathlib import Path
 from pydocfix.checker import build_rules_map, check_file
 from pydocfix.rules import (
     Applicability,
-    D200,
+    SUM002,
     Edit,
     Fix,
 )
@@ -18,7 +18,7 @@ class TestCheckFileFix:
         f = tmp_path / "example.py"
         src = 'def foo():\n    """Do something"""\n    pass\n'
         f.write_text(src)
-        _, result, _ = check_file(src, f, build_rules_map([D200()]), fix=True)
+        _, result, _ = check_file(src, f, build_rules_map([SUM002()]), fix=True)
         assert result is not None
         assert '"""Do something."""' in result
 
@@ -26,14 +26,14 @@ class TestCheckFileFix:
         f = tmp_path / "example.py"
         src = 'def foo():\n    """Do something."""\n    pass\n'
         f.write_text(src)
-        _, result, _ = check_file(src, f, build_rules_map([D200()]), fix=True)
+        _, result, _ = check_file(src, f, build_rules_map([SUM002()]), fix=True)
         assert result is None
 
     def test_preserves_surrounding_code(self, tmp_path: Path):
         f = tmp_path / "example.py"
         src = 'x = 1\n\ndef foo():\n    """Do something"""\n    return x\n'
         f.write_text(src)
-        _, result, _ = check_file(src, f, build_rules_map([D200()]), fix=True)
+        _, result, _ = check_file(src, f, build_rules_map([SUM002()]), fix=True)
         assert result is not None
         assert "x = 1" in result
         assert "return x" in result
@@ -43,7 +43,7 @@ class TestCheckFileFix:
         f = tmp_path / "example.py"
         src = 'def foo():\n    """Do something"""\n    pass\n'
         f.write_text(src)
-        diags, result, _ = check_file(src, f, build_rules_map([D200()]))
+        diags, result, _ = check_file(src, f, build_rules_map([SUM002()]))
         assert len(diags) == 1
         assert result is None  # fix=False by default
 
@@ -51,7 +51,7 @@ class TestCheckFileFix:
         f = tmp_path / "example.py"
         src = 'def foo():\n    """Do something"""\n    pass\n'
         f.write_text(src)
-        diags, result, _ = check_file(src, f, build_rules_map([D200()]), fix=True)
+        diags, result, _ = check_file(src, f, build_rules_map([SUM002()]), fix=True)
         assert len(diags) == 1
-        assert diags[0].rule == "D200"
+        assert diags[0].rule == "PDX-SUM002"
         assert result is not None

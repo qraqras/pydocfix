@@ -15,6 +15,7 @@ from pydocstring import (
     LineColumn,
     Node,
     NumPyDocstring,
+    PlainDocstring,
     SyntaxKind,
     Token,
 )
@@ -119,7 +120,7 @@ class DiagnoseContext:
 
     filepath: Path
     docstring_text: str
-    docstring_cst: GoogleDocstring | NumPyDocstring
+    docstring_cst: GoogleDocstring | NumPyDocstring | PlainDocstring
     target_cst: Node | Token
     parent_ast: ast.AST
     docstring_stmt: ast.stmt

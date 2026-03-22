@@ -1,4 +1,4 @@
-"""Rule D403 - Docstring parameter name missing '*' or '**' prefix."""
+"""Rule PRM009 - Docstring parameter name missing '*' or '**' prefix."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pydocstring import Node, SyntaxKind, Token
 from pydocfix.rules._base import Applicability, BaseRule, DiagnoseContext, Diagnostic, Fix, replace_token
 
 
-class D403(BaseRule):
+class PRM009(BaseRule):
     """Docstring parameter name missing '*' or '**' prefix."""
 
-    code = "D403"
+    code = "PDX-PRM009"
     message = "Docstring parameter name missing '*' or '**' prefix."
     target_kinds = {
         SyntaxKind.GOOGLE_ARG,

@@ -1,4 +1,4 @@
-"""Rule D401 - Docstring parameter type does not match type hint."""
+"""Rule PRM101 - Docstring parameter type does not match type hint."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ if TYPE_CHECKING:
     from pydocfix.config import Config
 
 
-class D401(BaseRule):
+class PRM101(BaseRule):
     """Docstring parameter type does not match type hint."""
 
-    code = "D401"
+    code = "PDX-PRM101"
     message = "Docstring parameter type does not match type hint."
     target_kinds = {
         SyntaxKind.GOOGLE_ARG,

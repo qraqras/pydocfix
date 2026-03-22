@@ -43,9 +43,9 @@ class TestLoadConfig:
         assert config.ignore == []
 
     def test_ignore_list(self, tmp_path: Path):
-        (tmp_path / "pyproject.toml").write_text('[tool.pydocfix]\nignore = ["D200", "D401"]\n')
+        (tmp_path / "pyproject.toml").write_text('[tool.pydocfix]\nignore = ["PDX-SUM002", "PDX-PRM101"]\n')
         config = load_config(tmp_path)
-        assert config.ignore == ["D200", "D401"]
+        assert config.ignore == ["PDX-SUM002", "PDX-PRM101"]
 
     def test_no_pydocfix_section(self, tmp_path: Path):
         (tmp_path / "pyproject.toml").write_text("[project]\nname = 'test'\n")
@@ -58,9 +58,9 @@ class TestLoadConfig:
         assert config.ignore == []
 
     def test_select_list(self, tmp_path: Path):
-        (tmp_path / "pyproject.toml").write_text('[tool.pydocfix]\nselect = ["D200"]\n')
+        (tmp_path / "pyproject.toml").write_text('[tool.pydocfix]\nselect = ["PDX-SUM002"]\n')
         config = load_config(tmp_path)
-        assert config.select == ["D200"]
+        assert config.select == ["PDX-SUM002"]
 
     def test_select_defaults_to_empty(self, tmp_path: Path):
         (tmp_path / "pyproject.toml").write_text("[tool.pydocfix]\n")
@@ -76,7 +76,7 @@ class TestIgnoreViaConfig:
         from pydocfix.rules import build_registry
 
         source = 'def foo():\n    """No period"""\n    pass\n'
-        registry = build_registry(ignore=["D200"])
+        registry = build_registry(ignore=["PDX-SUM002"])
         diags, *_ = check_file(source, tmp_path / "f.py", registry.kind_map)
         assert diags == []
 
@@ -85,9 +85,9 @@ class TestIgnoreViaConfig:
         from pydocfix.rules import build_registry
 
         source = 'def foo():\n    """No period"""\n    pass\n'
-        registry = build_registry(ignore=["D401"])
+        registry = build_registry(ignore=["PDX-PRM101"])
         diags, *_ = check_file(source, tmp_path / "f.py", registry.kind_map)
-        assert any(d.rule == "D200" for d in diags)
+        assert any(d.rule == "PDX-SUM002" for d in diags)
 
 
 class TestSelectViaConfig:
@@ -98,10 +98,10 @@ class TestSelectViaConfig:
         from pydocfix.rules import build_registry
 
         source = 'def foo():\n    """No period"""\n    pass\n'
-        # Only D401 selected → D200 should NOT fire even though it is default-enabled
-        registry = build_registry(select=["D401"])
+        # Only PRM101 selected → SUM002 should NOT fire even though it is default-enabled
+        registry = build_registry(select=["PDX-PRM101"])
         diags, *_ = check_file(source, tmp_path / "f.py", registry.kind_map)
-        assert not any(d.rule == "D200" for d in diags)
+        assert not any(d.rule == "PDX-SUM002" for d in diags)
 
     def test_select_all_enables_non_default_rule(self, tmp_path: Path):
         from pydocfix.rules import BaseRule, build_registry
@@ -128,7 +128,7 @@ class TestSelectViaConfig:
         source = 'def foo():\n    """No period"""\n    pass\n'
         registry = build_registry()  # no select → only default-enabled rules
         diags, *_ = check_file(source, tmp_path / "f.py", registry.kind_map)
-        assert any(d.rule == "D200" for d in diags)
+        assert any(d.rule == "PDX-SUM002" for d in diags)
 
     def test_non_default_rule_inactive_without_select(self, tmp_path: Path):
         from pydocfix.rules import BaseRule, build_registry
@@ -150,5 +150,5 @@ class TestSelectViaConfig:
     def test_ignore_overrides_select(self, tmp_path: Path):
         from pydocfix.rules import build_registry
 
-        registry = build_registry(select=["ALL"], ignore=["D200"])
-        assert registry.get("D200") is None
+        registry = build_registry(select=["ALL"], ignore=["PDX-SUM002"])
+        assert registry.get("PDX-SUM002") is None

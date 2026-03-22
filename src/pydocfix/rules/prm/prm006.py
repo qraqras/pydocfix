@@ -1,4 +1,4 @@
-"""Rule D409 - Docstring parameters are in a different order than the signature."""
+"""Rule PRM006 - Docstring parameters are in a different order than the signature."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ def _bare_name(name: str) -> str:
     return name.lstrip("*")
 
 
-class D409(BaseRule):
+class PRM006(BaseRule):
     """Docstring parameters are listed in a different order than the function signature."""
 
-    code = "D409"
+    code = "PDX-PRM006"
     message = "Docstring parameters are not in the same order as the function signature."
     target_kinds = {
         SyntaxKind.GOOGLE_SECTION,
