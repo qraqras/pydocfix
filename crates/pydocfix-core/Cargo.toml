@@ -1,0 +1,11 @@
+[package]
+name = "pydocfix-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Rust core for pydocfix"
+
+[dependencies]
+docstring-cst = { package = "docstring-cst-parser", path = "../../.." }
+pydocfix-scanner = { path = "../pydocfix-scanner" }

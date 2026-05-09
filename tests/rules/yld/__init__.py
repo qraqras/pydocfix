@@ -1,1 +1,0 @@
-"""YLD rule tests."""

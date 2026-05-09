@@ -1,0 +1,19 @@
+[package]
+name = "pydocfix-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Command line interface for the Rust pydocfix rewrite"
+
+[[bin]]
+name = "pydocfix"
+path = "src/main.rs"
+
+[dependencies]
+globset = "0.4"
+pydocfix-core = { path = "../pydocfix-core" }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"

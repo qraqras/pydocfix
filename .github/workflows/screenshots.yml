@@ -21,8 +21,16 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install pydocfix
-        run: pip install -e .
+        run: uv tool install --editable .
 
       - name: Generate diagnostic screenshot
         uses: charmbracelet/vhs-action@v2

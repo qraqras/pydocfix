@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
 
 [project]
 name = "pydocfix"
 version = "0.1.0b2"
-description = "A Python docstring linter with auto-fix support"
+description = "A Rust-powered Python docstring linter with auto-fix support"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -17,15 +17,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
     "Topic :: Software Development :: Quality Assurance",
 ]
-dependencies = [
-    "pydocstring-rs>=0.1.10",
-    "click>=8.0",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/ryumasai/pydocfix"
@@ -33,20 +28,13 @@ Repository = "https://github.com/ryumasai/pydocfix"
 Issues = "https://github.com/ryumasai/pydocfix/issues"
 Changelog = "https://github.com/ryumasai/pydocfix/releases"
 
-[project.scripts]
-pydocfix = "pydocfix.cli:main"
-
 [dependency-groups]
 dev = [
-    "pytest>=9.0",
-    "syrupy>=5.0",
+    "maturin>=1.9,<2",
+    "pydoclint>=0.8.3",
     "ruff>=0.11",
-    "ty>=0.0.32",
     "pre-commit>=4.5.1",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"
@@ -56,8 +44,10 @@ extend-include = ["tests/**/*.py"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 
-[tool.ty.src]
-include = ["src", "tests"]
+[tool.maturin]
+bindings = "bin"
+manifest-path = "crates/pydocfix-cli/Cargo.toml"
+strip = true
 
 [tool.pydocfix]
 exclude = ["tests/**/fixtures/"]

@@ -1,1 +1,0 @@
-"""RTN rule tests."""

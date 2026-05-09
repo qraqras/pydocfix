@@ -1,14 +1,14 @@
 repos:
   - repo: local
     hooks:
-      - id: ruff
-        name: ruff
-        entry: uv run ruff check --fix
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all
         language: system
-        types: [python]
+        pass_filenames: false
 
-      - id: ty
-        name: ty
-        entry: uv run ty check
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --workspace
         language: system
         pass_filenames: false

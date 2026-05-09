@@ -1,1 +1,0 @@
-"""RIS rule tests."""

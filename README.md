@@ -3,7 +3,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/pydocfix?color=0062A8)](https://pypi.org/project/pydocfix/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pydocfix?color=0062A8)](https://devguide.python.org/versions/)
 
-A Python docstring linter that checks **signature ↔ docstring consistency** and **auto-fixes** violations.
+A Rust-powered Python docstring linter that checks **signature ↔ docstring consistency** and **auto-fixes** violations.
 
 Inspired by [pydoclint](https://github.com/jsh9/pydoclint), pydocfix goes further by **automatically repairing** the issues it finds.
 
@@ -15,7 +15,7 @@ Inspired by [pydoclint](https://github.com/jsh9/pydoclint), pydocfix goes furthe
 
 [pydoclint](https://github.com/jsh9/pydoclint) pioneered fast signature ↔ docstring consistency checking for Python. However, it can only *report* violations — all corrections must be done by hand.
 
-pydocfix is built on [pydocstring-rs](https://github.com/aita/pydocstring-rs), a **CST (Concrete Syntax Tree) parser** for docstrings written in Rust by the same author. CST preserves every token's byte offset, whitespace, and formatting, enabling:
+pydocfix is implemented in Rust and built on docstring CST parsing. CST preserves every token's byte offset, whitespace, and formatting, enabling:
 
 - **Byte-level diagnostics** — point to the exact token (parameter name, type annotation, section header), not just the line
 - **Surgical auto-fix** — edits replace precise byte ranges, so fixes never corrupt adjacent content
@@ -37,7 +37,7 @@ Apply with `pydocfix check example.py --fix --unsafe-fixes`.
 
 - **Auto-fix** — Automatically repair docstring issues with safe/unsafe classification
 - **Many rules** across multiple categories (Summary, Parameters, Returns, Yields, Raises, Docstring)
-- **Google & NumPy style** support (powered by [pydocstring-rs](https://github.com/aita/pydocstring-rs))
+- **Google & NumPy style** support powered by Rust CST parsing
 - **Signature ↔ docstring consistency** — type mismatches, missing/extra parameters, ordering
 - **Default value checking** — detect missing `optional` / `default` annotations
 - **Precise diagnostics** — byte-level position information for every violation
@@ -46,37 +46,34 @@ Apply with `pydocfix check example.py --fix --unsafe-fixes`.
 
 ## Benchmark
 
-### pydocfix vs pydoclint
+These benchmarks use the same corpus selection as the historical pydocfix benchmark: shallow-clone each OSS project, then scan the main package directory (`numpy/` or `sklearn/`) rather than the whole repository.
+`pydocfix` performs linting and fix generation in one pass; `pydoclint` is lint-only.
 
-pydocfix performs linting **and** auto-fix generation in a single pass, yet is significantly faster than pydoclint (lint-only) thanks to parallel file processing:
+### Parallel (default worker pool — 10-core dev container)
 
-#### Parallel (default, auto-detected cores — 10-core machine)
+| Corpus | Files | Lines | pydocfix | pydoclint | Speedup |
+|--------|------:|------:|---------:|----------:|--------:|
+| [numpy](https://github.com/numpy/numpy) | 425 | 252K | 0.039 sec | 4.97 sec | **126.4x** |
+| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | 637 | 373K | 0.041 sec | 7.31 sec | **177.5x** |
 
-| Project | Files | Lines | pydocfix | pydoclint | Speedup |
-|---------|------:|------:|---------:|----------:|--------:|
-| [numpy](https://github.com/numpy/numpy) | 425 | 252K | 0.74 sec | 2.90 sec | **3.9x** |
-| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | 637 | 372K | 0.85 sec | 4.24 sec | **5.0x** |
+### Single-threaded (`--jobs 1`)
 
-#### Single-threaded (`--jobs 1`)
+| Corpus | Files | Lines | pydocfix | pydoclint | Speedup |
+|--------|------:|------:|---------:|----------:|--------:|
+| [numpy](https://github.com/numpy/numpy) | 425 | 252K | 0.251 sec | 4.97 sec | **19.8x** |
+| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | 637 | 373K | 0.278 sec | 7.31 sec | **26.3x** |
 
-| Project | Files | Lines | pydocfix | pydoclint | Speedup |
-|---------|------:|------:|---------:|----------:|--------:|
-| [numpy](https://github.com/numpy/numpy) | 425 | 252K | 2.18 sec | 2.90 sec | **1.3x** |
-| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | 637 | 372K | 2.43 sec | 4.24 sec | **1.7x** |
+| Corpus | pydocfix violations | pydoclint violations |
+|--------|--------------------:|---------------------:|
+| [numpy](https://github.com/numpy/numpy) | 3,466 | 2,787 |
+| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | 6,498 | 5,238 |
 
-> Median of 5 runs (+ 1 warmup) via [hyperfine](https://github.com/sharkdp/hyperfine). pydoclint runs single-threaded only.
-> pydoclint configured with `--arg-type-hints-in-signature False --arg-type-hints-in-docstring False` to match pydocfix's default (no `type_annotation_style` set).
+Measured on May 9, 2026 with `hyperfine --warmup 1 --runs 5` in the project dev container.
+`pydocfix` was built with `cargo build --release` and run with `--output-format concise`; `pydoclint` was version 0.8.3 and was run with `--style=numpy --arg-type-hints-in-signature=False --arg-type-hints-in-docstring=False`.
+Violation counts are not expected to match exactly because the tools expose different rule sets and parsing behavior.
+The benchmark can be reproduced with `python benchmarks/bench.py --target numpy,scikit-learn --docstyle numpy`.
 
-#### Violations detected
-
-| Project | pydocfix | pydoclint |
-|---------|------:|------:|
-| [numpy](https://github.com/numpy/numpy) | 2,562 | 2,787 |
-| [scikit-learn](https://github.com/scikit-learn/scikit-learn) | 4,551 | 5,230 |
-
-> Violation counts differ because pydoclint additionally checks class attributes (DOC6xx), which pydocfix does not implement.
-
-### Feature comparison
+## Feature comparison
 
 |  | pydocfix | pydoclint |
 |--|:--------:|:---------:|
@@ -106,6 +103,14 @@ pip install pydocfix
 
 Requires Python 3.11+.
 
+The PyPI package ships a native Rust `pydocfix` executable, similar to tools like Ruff. It does not require a Python runtime dependency such as `click` or a Python docstring parser package at execution time.
+
+For local packaging work, build the wheel through `uv`:
+
+```bash
+uv run maturin build --release --out dist
+```
+
 ## Quick Start
 
 ```bash
@@ -124,14 +129,11 @@ pydocfix check src/ --fix --unsafe-fixes
 # Select / ignore specific rules or categories
 pydocfix check src/ --select PRM --ignore RTN,YLD
 
-# Parallel execution (auto-detected for ≥8 files; override with --jobs)
+# Override parallelism
 pydocfix check src/ --jobs 4
 
 # Concise (single-line) output
 pydocfix check src/ --output-format concise
-
-# Disable color output
-pydocfix check src/ --no-color
 ```
 
 ## Configuration
@@ -143,8 +145,6 @@ Configure via `pyproject.toml`:
 # Rule selection (see "Rule selectors" for syntax details)
 select = ["ALL"]
 ignore = ["RIS"]
-extend-safe-fixes = ["PRM"]
-extend-unsafe-fixes = ["RTN", "YLD"]
 
 # Type annotation style: "signature" | "docstring" | "both" | omitted (default)
 #   omitted    — PRM103/RTN103/YLD103 and PRM104/RTN104/YLD104 are all disabled
@@ -296,7 +296,7 @@ Each rule is classified as **safe** fix, **unsafe** fix, or report-only.
 
 ## Rule selectors
 
-`--select`, `--ignore`, `--extend-safe-fixes`, `--extend-unsafe-fixes` (CLI) and their `pyproject.toml` equivalents all accept the same **rule selector** syntax:
+`--select`, `--ignore` and their `pyproject.toml` equivalents accept the same **rule selector** syntax:
 
 | Format | Example | Matches |
 |--------|---------|----------|
@@ -370,27 +370,6 @@ pydocfix check src/                        # only new violations reported
 
 The baseline file is a JSON file that records violations by **symbol name** (e.g. `MyClass.my_method`) rather than line number, so it stays stable when unrelated code is added or removed.
 Fixed violations are automatically removed from the baseline on the next run.
-
-## Color output
-
-pydocfix automatically enables ANSI color output when writing to a terminal (TTY).
-Color is disabled automatically when output is redirected to a file or pipe.
-
-You can override this behavior:
-
-| Method | Effect |
-|--------|--------|
-| `--no-color` flag | Disable color for that run |
-| `NO_COLOR=1` env var | Disable color (follows the [NO_COLOR](https://no-color.org/) convention) |
-| `FORCE_COLOR=1` env var | Force color even when not a TTY (e.g. in CI) |
-
-```bash
-# Disable color
-pydocfix check src/ --no-color
-
-# Force color in CI
-FORCE_COLOR=1 pydocfix check src/
-```
 
 ## pre-commit
 

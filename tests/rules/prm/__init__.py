@@ -1,1 +1,0 @@
-"""PRM rule tests."""
