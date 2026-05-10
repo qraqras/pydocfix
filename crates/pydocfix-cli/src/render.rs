@@ -14,6 +14,7 @@ pub(crate) struct DiagnosticRenderer<'a> {
     source: &'a str,
     format: OutputFormat,
     line_index: LineIndex,
+    colors: Colors,
 }
 
 impl<'a> DiagnosticRenderer<'a> {
@@ -23,18 +24,23 @@ impl<'a> DiagnosticRenderer<'a> {
             source,
             format,
             line_index: LineIndex::new(source),
+            colors: Colors::new(should_use_color()),
         }
     }
 
     pub(crate) fn render(&self, diagnostic: &Diagnostic) -> String {
         let range = self.line_index.position_range(diagnostic.range);
+        let sep = self.colors.separator(":");
         let header = format!(
-            "{}:{}:{}: {}{} {}",
+            "{}{}{}{}{}{} {}{} {}",
             self.path.display(),
+            sep,
             range.start.line,
+            sep,
             range.start.column,
-            diagnostic.rule,
-            fix_tag(diagnostic),
+            sep,
+            self.colors.rule(diagnostic.rule),
+            format!(" {}", fix_tag(diagnostic)),
             diagnostic.message,
         );
 
@@ -42,7 +48,7 @@ impl<'a> DiagnosticRenderer<'a> {
             return header;
         }
 
-        render_full(self.source, diagnostic.rule, range, header)
+        render_full(self.source, range, header, &self.colors)
     }
 }
 
@@ -51,13 +57,13 @@ fn fix_tag(diagnostic: &Diagnostic) -> &'static str {
         .fix
         .as_ref()
         .map(|fix| match fix.applicability {
-            Applicability::Safe => " [safe]",
-            Applicability::Unsafe => " [unsafe]",
+            Applicability::Safe => "[safe]",
+            Applicability::Unsafe => "[unsafe]",
         })
-        .unwrap_or("")
+        .unwrap_or("[]")
 }
 
-fn render_full(source: &str, rule: &str, range: PositionRange, header: String) -> String {
+fn render_full(source: &str, range: PositionRange, header: String, colors: &Colors) -> String {
     let lines = source_lines(source);
     if range.start.line == 0 || range.start.line > lines.len() {
         return header;
@@ -68,30 +74,84 @@ fn render_full(source: &str, rule: &str, range: PositionRange, header: String) -
     let gutter_width = last_line.to_string().len().max(2);
     let mut output = Vec::new();
     output.push(header);
-    output.push(gutter(None, gutter_width));
+    output.push(colors.gutter(&gutter(None, gutter_width)));
 
     for line_number in first_line..=last_line {
         let line = lines[line_number - 1];
-        output.push(format!("{} {}", gutter(Some(line_number), gutter_width), line));
+        output.push(format!(
+            "{} {}",
+            colors.gutter(&gutter(Some(line_number), gutter_width)),
+            line
+        ));
         if range.start.line <= line_number && line_number <= range.end.line {
             let (caret_start, caret_len) = caret_span(line, line_number, range);
-            let suffix = if line_number == range.start.line {
-                format!(" {rule}")
-            } else {
-                String::new()
-            };
             output.push(format!(
-                "{} {}{}{}",
-                gutter(None, gutter_width),
+                "{} {}{}",
+                colors.gutter(&gutter(None, gutter_width)),
                 " ".repeat(caret_start),
-                "^".repeat(caret_len),
-                suffix,
+                colors.caret(&"^".repeat(caret_len)),
             ));
         }
     }
 
-    output.push(gutter(None, gutter_width));
+    output.push(colors.gutter(&gutter(None, gutter_width)));
     output.join("\n")
+}
+
+#[derive(Clone, Copy)]
+struct Colors {
+    enabled: bool,
+}
+
+impl Colors {
+    fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    fn paint(&self, text: &str, code: &str) -> String {
+        if self.enabled {
+            format!("\u{1b}[{code}m{text}\u{1b}[0m")
+        } else {
+            text.to_string()
+        }
+    }
+
+    fn separator(&self, text: &str) -> String {
+        self.paint(text, "2")
+    }
+
+    fn gutter(&self, text: &str) -> String {
+        self.paint(text, "2")
+    }
+
+    fn caret(&self, text: &str) -> String {
+        self.paint(text, "1;31")
+    }
+
+    fn rule(&self, text: &str) -> String {
+        self.paint(text, "1;31")
+    }
+}
+
+fn should_use_color() -> bool {
+    #[cfg(test)]
+    {
+        false
+    }
+    #[cfg(not(test))]
+    {
+        use std::io::IsTerminal as _;
+
+        if std::env::var_os("NO_COLOR").is_some() {
+            return false;
+        }
+
+        if std::env::var_os("FORCE_COLOR").is_some() {
+            return true;
+        }
+
+        std::io::stdout().is_terminal()
+    }
 }
 
 fn gutter(line_number: Option<usize>, width: usize) -> String {
@@ -187,7 +247,7 @@ mod tests {
             OutputFormat::Concise,
         );
 
-        assert_eq!(rendered, "example.py:2:8: SUM002 Summary doesn't end with period.");
+        assert_eq!(rendered, "example.py:2:8: SUM002 [] Summary doesn't end with period.");
     }
 
     #[test]
@@ -206,8 +266,9 @@ mod tests {
             OutputFormat::Full,
         );
 
-        assert!(rendered.contains("example.py:2:8: SUM002 Summary doesn't end with period."));
+        assert!(rendered.contains("example.py:2:8: SUM002 [] Summary doesn't end with period."));
         assert!(rendered.contains("2 |     \"\"\"Summary\"\"\""));
-        assert!(rendered.contains("|        ^^^^^^^ SUM002"));
+        assert!(rendered.contains("|        ^^^^^^^"));
+        assert!(!rendered.contains("|        ^^^^^^^ SUM002"));
     }
 }

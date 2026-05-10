@@ -3,7 +3,6 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use pydocfix_core::analyze_source_with_config;
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 
@@ -127,7 +126,8 @@ fn process_file(
 ) -> Result<FileOutcome, String> {
     let baseline_key = normalize_path(path, settings.project_root.as_deref().unwrap_or_else(|| Path::new(".")));
     let source = fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let report = analyze_source_with_config(&source, settings.analysis_config);
+    let linter = settings.linter();
+    let report = linter.analyze_source(&source);
     let record_raw_diagnostics = settings.generate_baseline || !baseline_data.is_empty();
     if settings.debug_docstrings {
         let rendered_lines = report
@@ -187,7 +187,7 @@ fn process_file(
     let diagnostics = filter_baseline_violations(raw_diagnostics, baseline_data, &baseline_key);
     if settings.fix || settings.diff {
         let outcome = apply_fixes_until_stable(&source, settings.unsafe_fixes, |current_source| {
-            let current_report = analyze_source_with_config(current_source, settings.analysis_config);
+            let current_report = linter.analyze_source(current_source);
             let current_suppression = apply_noqa_suppression_with_report(
                 current_source,
                 settings.filter_diagnostics(current_report.diagnostics),

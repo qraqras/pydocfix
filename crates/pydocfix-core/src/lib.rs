@@ -5,24 +5,36 @@
 
 use std::sync::Arc;
 
-use docstring_cst::semantic::{BlockKind, SemanticBlock};
+use docstring_cst::semantic::SemanticBlock;
 use docstring_cst::{DocstringStyle, Source, TextRange};
 use pydocfix_scanner::{Item, ParameterRecord, RaiseRecord, summarize_python};
 
+mod linter;
 mod model;
+mod rules;
 
+pub use linter::Linter;
 pub use model::{
     AnalysisConfig, Applicability, ClassDocstringStyle, Diagnostic, DocstringHost, Edit, FileReport, Fix, HostKind,
-    ParsedDocstring, RaisedException, Range, SignatureParameter, TypeAnnotationStyle,
+    ParsedDocstring, RaisedException, Range, RuleFilter, SignatureParameter, TypeAnnotationStyle,
 };
 
 /// Analyze Python source with the first Rust rewrite pipeline.
 pub fn analyze_source(source: &str) -> FileReport {
-    analyze_source_with_config(source, AnalysisConfig::default())
+    Linter::default().analyze_source(source)
 }
 
 /// Analyze Python source with explicit rule configuration.
 pub fn analyze_source_with_config(source: &str, config: AnalysisConfig) -> FileReport {
+    Linter::new(config).analyze_source(source)
+}
+
+pub(crate) fn analyze_source_with_filter(source: &str, config: AnalysisConfig, rule_filter: &RuleFilter) -> FileReport {
+    let config = AnalysisConfig {
+        enable_prm201: config.enable_prm201 || rule_filter.enables("PRM201"),
+        enable_prm202: config.enable_prm202 || rule_filter.enables("PRM202"),
+        ..config
+    };
     let summary = summarize_python(source);
     let source_buffer = Source::new(Arc::<str>::from(source));
     let mut hosts = Vec::new();
@@ -145,13 +157,48 @@ pub fn analyze_source_with_config(source: &str, config: AnalysisConfig) -> FileR
         let cst = source_buffer.parse(host.docstring_range.start, host.docstring_range.end);
         if let Some(cst) = cst {
             let semantic = cst.semantic();
-            diagnostics.extend(check_summary_rules(&source_buffer, &host, &semantic));
-            diagnostics.extend(check_return_rules(&source_buffer, &host, &semantic, config));
-            diagnostics.extend(check_yield_rules(&source_buffer, &host, &semantic, config));
-            diagnostics.extend(check_raise_rules(&source_buffer, &host, &semantic));
-            diagnostics.extend(check_doc_rules(&source_buffer, &host, &semantic));
-            diagnostics.extend(check_class_rules(&source_buffer, &host, &semantic, config));
-            diagnostics.extend(check_parameter_rules(&source_buffer, &host, &semantic, config));
+            diagnostics.extend(rules::summary::check_summary_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
+            diagnostics.extend(rules::returns::check_return_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
+            diagnostics.extend(rules::yields::check_yield_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
+            diagnostics.extend(rules::raises::check_raise_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
+            diagnostics.extend(rules::documentation::check_doc_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
+            diagnostics.extend(rules::classes::check_class_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
+            diagnostics.extend(rules::parameters::check_parameter_rules(
+                &source_buffer,
+                &host,
+                &semantic,
+                config,
+            ));
             docstrings.push(ParsedDocstring {
                 host: host.clone(),
                 style: format!("{:?}", semantic.style()),
@@ -176,196 +223,15 @@ pub fn analyze_source_with_config(source: &str, config: AnalysisConfig) -> FileR
 
     FileReport {
         docstrings,
-        diagnostics,
+        diagnostics: rule_filter.filter_diagnostics(diagnostics),
     }
 }
 
-fn check_doc_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    if let Some(diagnostic) = check_doc001(source, host, semantic) {
-        diagnostics.push(diagnostic);
-    }
-    diagnostics.extend(check_doc002(source, host, semantic));
-    if let Some(diagnostic) = check_doc003(source, host, semantic) {
-        diagnostics.push(diagnostic);
-    }
-
-    diagnostics
-}
-
-fn check_class_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-    config: AnalysisConfig,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    if host.kind == HostKind::Function
-        && host.name.as_deref() == Some("__init__")
-        && host.parent_class_docstring_range.is_some()
-        && config.class_docstring_style != Some(ClassDocstringStyle::Both)
-    {
-        diagnostics.push(Diagnostic {
-            rule: "CLS001",
-            message: "__init__ has its own docstring but the class also has a docstring.".to_string(),
-            range: semantic
-                .summary()
-                .map(|summary| summary.entry_range.into())
-                .unwrap_or(host.docstring_range),
-            fix: None,
-            symbol: host.name.clone(),
-        });
-    }
-
-    for block in semantic.blocks() {
-        match (host.kind, host.name.as_deref(), block.kind) {
-            (HostKind::Class, _, BlockKind::Returns) => diagnostics.push(section_diagnostic(
-                "CLS101",
-                "Class docstring should not have a Returns section.",
-                host,
-                block,
-                Applicability::Safe,
-            )),
-            (HostKind::Class, _, BlockKind::Yields) => diagnostics.push(section_diagnostic(
-                "CLS102",
-                "Class docstring should not have a Yields section.",
-                host,
-                block,
-                Applicability::Safe,
-            )),
-            (HostKind::Function, Some("__init__"), BlockKind::Returns) => diagnostics.push(section_diagnostic(
-                "CLS201",
-                "__init__ docstring should not have a Returns section.",
-                host,
-                block,
-                Applicability::Safe,
-            )),
-            (HostKind::Function, Some("__init__"), BlockKind::Yields) => diagnostics.push(section_diagnostic(
-                "CLS202",
-                "__init__ docstring should not have a Yields section.",
-                host,
-                block,
-                Applicability::Safe,
-            )),
-            (HostKind::Class, _, BlockKind::Parameters)
-                if config.class_docstring_style == Some(ClassDocstringStyle::Init) =>
-            {
-                diagnostics.push(section_diagnostic(
-                    "CLS103",
-                    "Class docstring should not have an Args/Parameters section when class_docstring_style is 'init'.",
-                    host,
-                    block,
-                    Applicability::Unsafe,
-                ));
-            }
-            (HostKind::Class, _, BlockKind::Raises)
-                if config.class_docstring_style == Some(ClassDocstringStyle::Init) =>
-            {
-                diagnostics.push(section_diagnostic(
-                    "CLS104",
-                    "Class docstring should not have a Raises section when class_docstring_style is 'init'.",
-                    host,
-                    block,
-                    Applicability::Unsafe,
-                ));
-            }
-            (HostKind::Function, Some("__init__"), BlockKind::Parameters)
-                if config.class_docstring_style == Some(ClassDocstringStyle::Class) =>
-            {
-                diagnostics.push(section_diagnostic(
-                    "CLS203",
-                    "__init__ docstring should not have an Args/Parameters section when class_docstring_style is 'class'.",
-                    host,
-                    block,
-                    Applicability::Unsafe,
-                ));
-            }
-            (HostKind::Function, Some("__init__"), BlockKind::Raises)
-                if config.class_docstring_style == Some(ClassDocstringStyle::Class) =>
-            {
-                diagnostics.push(section_diagnostic(
-                    "CLS204",
-                    "__init__ docstring should not have a Raises section when class_docstring_style is 'class'.",
-                    host,
-                    block,
-                    Applicability::Unsafe,
-                ));
-            }
-            _ => {}
-        }
-    }
-
-    if !is_short_plain_docstring(semantic) {
-        let has_parameters = semantic
-            .blocks()
-            .iter()
-            .any(|block| block.kind == BlockKind::Parameters);
-        let has_raises = semantic.blocks().iter().any(|block| block.kind == BlockKind::Raises);
-
-        if host.kind == HostKind::Class && config.class_docstring_style == Some(ClassDocstringStyle::Class) {
-            if !has_parameters && !documentable_signature_parameters(host).is_empty() {
-                diagnostics.push(missing_section_diagnostic(
-                    "CLS105",
-                    "Class docstring is missing an Args/Parameters section (class_docstring_style is 'class').",
-                    source,
-                    host,
-                    semantic,
-                    args_section_stub(source, host, semantic.style()),
-                ));
-            }
-            if !has_raises && !host.raised_exceptions.is_empty() {
-                diagnostics.push(missing_section_diagnostic(
-                    "CLS106",
-                    "Class docstring is missing a Raises section (class_docstring_style is 'class').",
-                    source,
-                    host,
-                    semantic,
-                    raises_section_stub(source, host, semantic.style()),
-                ));
-            }
-        }
-
-        if host.kind == HostKind::Function
-            && host.name.as_deref() == Some("__init__")
-            && config.class_docstring_style == Some(ClassDocstringStyle::Init)
-        {
-            if !has_parameters && !documentable_signature_parameters(host).is_empty() {
-                diagnostics.push(missing_section_diagnostic(
-                    "CLS205",
-                    "__init__ docstring is missing an Args/Parameters section (class_docstring_style is 'init').",
-                    source,
-                    host,
-                    semantic,
-                    args_section_stub(source, host, semantic.style()),
-                ));
-            }
-            if !has_raises && !host.raised_exceptions.is_empty() {
-                diagnostics.push(missing_section_diagnostic(
-                    "CLS206",
-                    "__init__ docstring is missing a Raises section (class_docstring_style is 'init').",
-                    source,
-                    host,
-                    semantic,
-                    raises_section_stub(source, host, semantic.style()),
-                ));
-            }
-        }
-    }
-
-    diagnostics
-}
-
-fn is_short_plain_docstring(semantic: &docstring_cst::semantic::SemanticView) -> bool {
+pub(crate) fn is_short_plain_docstring(semantic: &docstring_cst::semantic::SemanticView) -> bool {
     semantic.style() == DocstringStyle::Plain && semantic.extended_summary().is_none() && semantic.blocks().is_empty()
 }
 
-fn missing_section_diagnostic(
+pub(crate) fn missing_section_diagnostic(
     rule: &'static str,
     message: &str,
     _source: &Source,
@@ -392,7 +258,7 @@ fn missing_section_diagnostic(
     }
 }
 
-fn section_diagnostic(
+pub(crate) fn section_diagnostic(
     rule: &'static str,
     message: &str,
     host: &DocstringHost,
@@ -411,566 +277,6 @@ fn section_diagnostic(
             applicability,
         }),
         symbol: host.name.clone(),
-    }
-}
-
-fn check_parameter_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-    config: AnalysisConfig,
-) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
-    let mut diagnostics = Vec::new();
-    let parameter_block = semantic
-        .blocks()
-        .iter()
-        .find(|block| block.kind == BlockKind::Parameters);
-    let parameters = semantic.parameters();
-    let signature_params = documentable_signature_parameters(host);
-
-    if host.name.as_deref() != Some("__init__")
-        && !signature_params.is_empty()
-        && parameter_block.is_none()
-        && parameters.is_empty()
-    {
-        let insert_offset = semantic
-            .close_quote()
-            .map(|quote| quote.entry_range.start())
-            .unwrap_or(host.docstring_range.end);
-        diagnostics.push(Diagnostic {
-            rule: "PRM001",
-            message: "Missing Args/Parameters section in docstring.".to_string(),
-            range: semantic
-                .summary()
-                .map(|summary| summary.entry_range.into())
-                .unwrap_or(host.docstring_range),
-            fix: Some(Fix {
-                edits: vec![Edit::insert(
-                    insert_offset,
-                    args_section_stub(source, host, semantic.style()),
-                )],
-                applicability: Applicability::Unsafe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    if signature_params.is_empty()
-        && let Some(block) = parameter_block
-    {
-        diagnostics.push(Diagnostic {
-            rule: "PRM002",
-            message: "Function has no parameters but docstring has Args/Parameters section.".to_string(),
-            range: block.name_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: block.entry_range.into(),
-                    replacement: String::new(),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    let documented = documented_parameters(source, semantic);
-    for documented_param in &documented {
-        if matches!(documented_param.name.as_str(), "self" | "cls") {
-            diagnostics.push(Diagnostic {
-                rule: "PRM003",
-                message: format!("Docstring should not document '{}'.", documented_param.name),
-                range: documented_param.name_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit {
-                        range: documented_param.entry_range.into(),
-                        replacement: String::new(),
-                    }],
-                    applicability: Applicability::Safe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    if let Some(block) = parameter_block
-        && !documented.is_empty()
-    {
-        for signature_param in signature_params {
-            if documented
-                .iter()
-                .any(|documented_param| bare_parameter_name(&documented_param.name) == signature_param.bare_name)
-            {
-                continue;
-            }
-            diagnostics.push(Diagnostic {
-                rule: "PRM004",
-                message: format!("Missing parameter '{}' in docstring.", signature_param.name),
-                range: block.name_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit::insert(
-                        block.entry_range.end(),
-                        parameter_entry_append_text(source, block.name_range, semantic.style(), signature_param),
-                    )],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    let signature_names = all_signature_bare_names(host);
-    for documented_param in &documented {
-        let bare_name = bare_parameter_name(&documented_param.name);
-        if !signature_names.iter().any(|name| *name == bare_name) {
-            diagnostics.push(Diagnostic {
-                rule: "PRM005",
-                message: format!("Parameter '{}' not in function signature.", documented_param.name),
-                range: documented_param.name_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit {
-                        range: documented_param.entry_range.into(),
-                        replacement: String::new(),
-                    }],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    diagnostics.extend(check_prm006(source, host, &documented));
-    diagnostics.extend(check_prm007(host, &documented));
-    diagnostics.extend(check_prm008(source, host, &documented));
-    diagnostics.extend(check_prm009(host, &documented));
-    diagnostics.extend(check_parameter_default_rules(source, host, config, &documented));
-    diagnostics.extend(check_parameter_type_rules(
-        source,
-        host,
-        semantic.style(),
-        config,
-        &documented,
-    ));
-
-    diagnostics
-}
-
-fn check_parameter_default_rules(
-    source: &Source,
-    host: &DocstringHost,
-    config: AnalysisConfig,
-    documented: &[DocumentedParameter],
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for documented_param in documented {
-        let bare_name = bare_parameter_name(&documented_param.name);
-        let Some(signature_param) = host
-            .signature_parameters
-            .iter()
-            .find(|param| param.bare_name == bare_name && !param.is_implicit_receiver)
-        else {
-            continue;
-        };
-        let Some(default_value) = signature_param.default_value.as_deref() else {
-            continue;
-        };
-
-        if documented_param.type_range.is_some() && documented_param.optional_range.is_none() {
-            diagnostics.push(Diagnostic {
-                rule: "PRM201",
-                message: format!(
-                    "Parameter '{}' has default value but docstring does not mention 'optional'.",
-                    documented_param.name
-                ),
-                range: documented_param.name_range.into(),
-                fix: documented_param.type_range.map(|type_range| Fix {
-                    edits: vec![Edit::insert(type_range.end(), ", optional")],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if config.enable_prm202 && !documented_parameter_mentions_default(source, documented_param) {
-            diagnostics.push(Diagnostic {
-                rule: "PRM202",
-                message: format!(
-                    "Parameter '{}' has default value but docstring does not mention 'default'.",
-                    documented_param.name
-                ),
-                range: documented_param.name_range.into(),
-                fix: documented_param.description_range.and_then(|description_range| {
-                    let description = source.slice(description_range)?.trim_end();
-                    let suffix = if description.ends_with('.') { "" } else { "." };
-                    Some(Fix {
-                        edits: vec![Edit::insert(
-                            description_range.end(),
-                            format!("{suffix} Defaults to {default_value}."),
-                        )],
-                        applicability: Applicability::Unsafe,
-                    })
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-    }
-    diagnostics
-}
-
-fn check_parameter_type_rules(
-    source: &Source,
-    host: &DocstringHost,
-    style: DocstringStyle,
-    config: AnalysisConfig,
-    documented: &[DocumentedParameter],
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for documented_param in documented {
-        let bare_name = bare_parameter_name(&documented_param.name);
-        let Some(signature_param) = host
-            .signature_parameters
-            .iter()
-            .find(|param| param.bare_name == bare_name && !param.is_implicit_receiver)
-        else {
-            continue;
-        };
-        let doc_type = documented_param
-            .type_range
-            .and_then(|range| source.slice(range))
-            .map(str::trim)
-            .filter(|text| !text.is_empty());
-        let signature_type = signature_param.annotation.as_deref();
-
-        match (doc_type, signature_type) {
-            (Some(doc_type), Some(signature_type)) if !types_match(doc_type, signature_type) => {
-                let type_range = documented_param.type_range.unwrap();
-                diagnostics.push(Diagnostic {
-                    rule: "PRM101",
-                    message: format!(
-                        "Docstring type '{doc_type}' does not match type hint '{signature_type}' for parameter '{}'.",
-                        documented_param.name
-                    ),
-                    range: type_range.into(),
-                    fix: Some(Fix {
-                        edits: vec![Edit {
-                            range: type_range.into(),
-                            replacement: signature_type.to_string(),
-                        }],
-                        applicability: Applicability::Unsafe,
-                    }),
-                    symbol: host.name.clone(),
-                });
-            }
-            (None, None) if config.type_annotation_style.is_none() => diagnostics.push(Diagnostic {
-                rule: "PRM102",
-                message: format!(
-                    "Parameter '{}' has no type in docstring or signature.",
-                    documented_param.name
-                ),
-                range: documented_param.name_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            }),
-            _ => {}
-        }
-
-        if matches!(
-            config.type_annotation_style,
-            Some(TypeAnnotationStyle::Docstring | TypeAnnotationStyle::Both)
-        ) && doc_type.is_none()
-        {
-            diagnostics.push(Diagnostic {
-                rule: "PRM103",
-                message: format!("Parameter '{}' has no type in docstring.", documented_param.name),
-                range: documented_param.name_range.into(),
-                fix: signature_type.map(|signature_type| Fix {
-                    edits: vec![Edit::insert(
-                        documented_param.name_range.end(),
-                        parameter_type_insert_text(style, signature_type),
-                    )],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(config.type_annotation_style, Some(TypeAnnotationStyle::Signature))
-            && doc_type.is_some()
-            && signature_type.is_some()
-        {
-            let type_range = documented_param.type_range.unwrap();
-            diagnostics.push(Diagnostic {
-                rule: "PRM104",
-                message: format!("Parameter '{}' has redundant type in docstring.", documented_param.name),
-                range: type_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit {
-                        range: parameter_type_delete_range(source, style, documented_param, type_range),
-                        replacement: String::new(),
-                    }],
-                    applicability: Applicability::Safe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(
-            config.type_annotation_style,
-            Some(TypeAnnotationStyle::Signature | TypeAnnotationStyle::Both)
-        ) && signature_type.is_none()
-        {
-            diagnostics.push(Diagnostic {
-                rule: "PRM105",
-                message: format!(
-                    "Parameter '{}' has no type annotation in signature.",
-                    documented_param.name
-                ),
-                range: documented_param.name_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(config.type_annotation_style, Some(TypeAnnotationStyle::Docstring)) && signature_type.is_some() {
-            diagnostics.push(Diagnostic {
-                rule: "PRM106",
-                message: format!(
-                    "Parameter '{}' has a type annotation in signature; types belong in the docstring.",
-                    documented_param.name
-                ),
-                range: documented_param.name_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-    }
-    diagnostics
-}
-
-fn check_prm006(source: &Source, host: &DocstringHost, documented: &[DocumentedParameter]) -> Vec<Diagnostic> {
-    let signature_order: Vec<&str> = documentable_signature_parameters(host)
-        .into_iter()
-        .map(|param| param.bare_name.as_str())
-        .collect();
-    if signature_order.is_empty() || documented.len() < 2 {
-        return Vec::new();
-    }
-    let documented_in_signature: Vec<&DocumentedParameter> = documented
-        .iter()
-        .filter(|param| signature_order.contains(&bare_parameter_name(&param.name)))
-        .collect();
-    let documented_names: Vec<&str> = documented_in_signature
-        .iter()
-        .map(|param| bare_parameter_name(&param.name))
-        .collect();
-    let expected: Vec<&str> = signature_order
-        .iter()
-        .copied()
-        .filter(|name| documented_names.contains(name))
-        .collect();
-    if documented_names == expected {
-        return Vec::new();
-    }
-
-    let fix = reorder_parameters_fix(source, documented, &signature_order);
-    let mut diagnostics = Vec::new();
-    for (index, (documented_param, expected_name)) in documented_in_signature.iter().zip(expected.iter()).enumerate() {
-        let doc_name = bare_parameter_name(&documented_param.name);
-        if doc_name == *expected_name {
-            continue;
-        }
-        diagnostics.push(Diagnostic {
-            rule: "PRM006",
-            message: format!(
-                "Parameter '{doc_name}' is in the wrong order (expected '{expected_name}' at this position)."
-            ),
-            range: documented_param.name_range.into(),
-            fix: (index == 0).then(|| fix.clone()),
-            symbol: host.name.clone(),
-        });
-    }
-    diagnostics
-}
-
-fn check_prm007(host: &DocstringHost, documented: &[DocumentedParameter]) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut seen = Vec::new();
-    for documented_param in documented {
-        if seen.contains(&documented_param.name.as_str()) {
-            diagnostics.push(Diagnostic {
-                rule: "PRM007",
-                message: format!("Parameter '{}' is documented more than once.", documented_param.name),
-                range: documented_param.name_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit {
-                        range: documented_param.entry_range.into(),
-                        replacement: String::new(),
-                    }],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        } else {
-            seen.push(documented_param.name.as_str());
-        }
-    }
-    diagnostics
-}
-
-fn check_prm008(source: &Source, host: &DocstringHost, documented: &[DocumentedParameter]) -> Vec<Diagnostic> {
-    documented
-        .iter()
-        .filter(|param| {
-            param
-                .description_range
-                .and_then(|range| source.slice(range))
-                .is_none_or(|description| description.trim().is_empty())
-        })
-        .map(|param| Diagnostic {
-            rule: "PRM008",
-            message: format!("Parameter '{}' has no description.", param.name),
-            range: param.name_range.into(),
-            fix: None,
-            symbol: host.name.clone(),
-        })
-        .collect()
-}
-
-fn check_prm009(host: &DocstringHost, documented: &[DocumentedParameter]) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    for documented_param in documented {
-        if documented_param.name.starts_with('*') {
-            continue;
-        }
-        let Some(signature_param) = host
-            .signature_parameters
-            .iter()
-            .find(|param| param.bare_name == documented_param.name && (param.is_vararg || param.is_kwarg))
-        else {
-            continue;
-        };
-        diagnostics.push(Diagnostic {
-            rule: "PRM009",
-            message: format!(
-                "Docstring parameter '{}' should be '{}'.",
-                documented_param.name, signature_param.name
-            ),
-            range: documented_param.name_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: documented_param.name_range.into(),
-                    replacement: signature_param.name.clone(),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-    diagnostics
-}
-
-#[derive(Clone, Debug)]
-struct DocumentedParameter {
-    name: String,
-    entry_range: TextRange,
-    name_range: TextRange,
-    type_range: Option<TextRange>,
-    description_range: Option<TextRange>,
-    optional_range: Option<TextRange>,
-    default_value_range: Option<TextRange>,
-}
-
-fn documented_parameters(
-    source: &Source,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Vec<DocumentedParameter> {
-    semantic
-        .parameters()
-        .iter()
-        .filter_map(|param| {
-            let name_range = param.name_range?;
-            let name = source.slice(name_range)?.trim().to_string();
-            Some(DocumentedParameter {
-                name,
-                entry_range: param.entry_range,
-                name_range,
-                type_range: param.type_range,
-                description_range: param.description_range,
-                optional_range: param.optional_range,
-                default_value_range: param.default_value_range,
-            })
-        })
-        .collect()
-}
-
-fn documented_parameter_mentions_default(source: &Source, documented_param: &DocumentedParameter) -> bool {
-    if documented_param.default_value_range.is_some() {
-        return true;
-    }
-    documented_param
-        .description_range
-        .and_then(|range| source.slice(range))
-        .is_some_and(contains_default_word)
-}
-
-fn contains_default_word(text: &str) -> bool {
-    let mut word = String::new();
-    for character in text.chars().chain(std::iter::once(' ')) {
-        if character.is_ascii_alphabetic() {
-            word.push(character.to_ascii_lowercase());
-        } else {
-            if matches!(word.as_str(), "default" | "defaults") {
-                return true;
-            }
-            word.clear();
-        }
-    }
-    false
-}
-
-fn parameter_type_insert_text(style: DocstringStyle, signature_type: &str) -> String {
-    match style {
-        DocstringStyle::Numpy => format!(" : {signature_type}"),
-        _ => format!(" ({signature_type})"),
-    }
-}
-
-fn parameter_type_delete_range(
-    source: &Source,
-    style: DocstringStyle,
-    documented_param: &DocumentedParameter,
-    type_range: TextRange,
-) -> Range {
-    let bytes = source.source().as_bytes();
-    match style {
-        DocstringStyle::Numpy => {
-            let mut start = type_range.start();
-            while start > documented_param.name_range.end() && matches!(bytes.get(start - 1), Some(b' ' | b'\t' | b':'))
-            {
-                start -= 1;
-            }
-            Range {
-                start,
-                end: type_range.end(),
-            }
-        }
-        _ => {
-            let mut start = type_range.start();
-            let mut end = type_range.end();
-            if start > documented_param.name_range.end() && bytes.get(start - 1) == Some(&b'(') {
-                start -= 1;
-                while start > documented_param.name_range.end() && matches!(bytes.get(start - 1), Some(b' ' | b'\t')) {
-                    start -= 1;
-                }
-            }
-            if bytes.get(end) == Some(&b')') {
-                end += 1;
-            }
-            Range { start, end }
-        }
     }
 }
 
@@ -996,447 +302,6 @@ fn signature_parameter_from_record(source: &str, record: &ParameterRecord) -> Si
     }
 }
 
-fn documentable_signature_parameters(host: &DocstringHost) -> Vec<&SignatureParameter> {
-    host.signature_parameters
-        .iter()
-        .filter(|param| !param.is_implicit_receiver)
-        .collect()
-}
-
-fn all_signature_bare_names(host: &DocstringHost) -> Vec<&str> {
-    host.signature_parameters
-        .iter()
-        .map(|param| param.bare_name.as_str())
-        .collect()
-}
-
-fn bare_parameter_name(name: &str) -> &str {
-    name.trim_start_matches('*')
-}
-
-fn args_section_stub(source: &Source, host: &DocstringHost, style: DocstringStyle) -> String {
-    let indent = line_indent_before(source.source(), host.docstring_range.start);
-    let params = documentable_signature_parameters(host);
-    match style {
-        DocstringStyle::Numpy => {
-            let mut stub = format!("\n\n{indent}Parameters\n{indent}----------");
-            for param in params {
-                if let Some(annotation) = &param.annotation {
-                    stub.push_str(&format!("\n{indent}{} : {annotation}", param.name));
-                } else {
-                    stub.push_str(&format!("\n{indent}{}", param.name));
-                }
-            }
-            stub.push_str(&format!("\n{indent}"));
-            stub
-        }
-        _ => {
-            let mut stub = format!("\n\n{indent}Args:");
-            for param in params {
-                if let Some(annotation) = &param.annotation {
-                    stub.push_str(&format!("\n{indent}    {} ({annotation}):", param.name));
-                } else {
-                    stub.push_str(&format!("\n{indent}    {}:", param.name));
-                }
-            }
-            stub.push_str(&format!("\n{indent}"));
-            stub
-        }
-    }
-}
-
-fn parameter_entry_append_text(
-    source: &Source,
-    header_range: TextRange,
-    style: DocstringStyle,
-    param: &SignatureParameter,
-) -> String {
-    let header_indent = line_indent_before(source.source(), header_range.start());
-    match style {
-        DocstringStyle::Numpy => {
-            if let Some(annotation) = &param.annotation {
-                format!("\n{header_indent}{} : {annotation}", param.name)
-            } else {
-                format!("\n{header_indent}{}", param.name)
-            }
-        }
-        _ => {
-            if let Some(annotation) = &param.annotation {
-                format!("\n{header_indent}    {} ({annotation}):", param.name)
-            } else {
-                format!("\n{header_indent}    {}:", param.name)
-            }
-        }
-    }
-}
-
-fn reorder_parameters_fix(source: &Source, documented: &[DocumentedParameter], signature_order: &[&str]) -> Fix {
-    let mut sorted = documented.to_vec();
-    sorted.sort_by_key(|param| {
-        signature_order
-            .iter()
-            .position(|name| *name == bare_parameter_name(&param.name))
-            .unwrap_or(signature_order.len())
-    });
-    let start = documented.first().map(|param| param.entry_range.start()).unwrap_or(0);
-    let end = documented.last().map(|param| param.entry_range.end()).unwrap_or(start);
-    let replacement = sorted
-        .iter()
-        .filter_map(|param| source.slice(param.entry_range))
-        .collect::<String>();
-    Fix {
-        edits: vec![Edit {
-            range: Range { start, end },
-            replacement,
-        }],
-        applicability: Applicability::Unsafe,
-    }
-}
-
-fn check_doc001(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Option<Diagnostic> {
-    if !matches!(host.kind, HostKind::Function | HostKind::Class) {
-        return None;
-    }
-    if !matches!(semantic.style(), DocstringStyle::Google | DocstringStyle::Numpy) {
-        return None;
-    }
-
-    let blocks = semantic.blocks();
-    if blocks.len() < 2 {
-        return None;
-    }
-
-    let sorted_indices = sorted_block_indices(blocks);
-    if sorted_indices.iter().copied().eq(0..blocks.len()) {
-        return None;
-    }
-
-    let first_wrong_index = sorted_indices
-        .iter()
-        .enumerate()
-        .find_map(|(index, sorted_index)| (index != *sorted_index).then_some(index))
-        .unwrap_or(0);
-    let range = blocks[first_wrong_index].entry_range.into();
-
-    let start = blocks.first()?.entry_range.start();
-    let end = blocks.last()?.entry_range.end();
-    let original = source.source().get(start..end)?;
-    let mut replacement = String::new();
-    for (position, block_index) in sorted_indices.iter().enumerate() {
-        let block = blocks[*block_index];
-        replacement.push_str(source.slice(block.entry_range)?);
-        if position + 1 < sorted_indices.len() {
-            let gap_start = blocks[position].entry_range.end();
-            let gap_end = blocks[position + 1].entry_range.start();
-            replacement.push_str(source.source().get(gap_start..gap_end).unwrap_or(""));
-        }
-    }
-    if replacement == original {
-        return None;
-    }
-
-    Some(Diagnostic {
-        rule: "DOC001",
-        message: "Docstring sections are not in canonical order.".to_string(),
-        range,
-        fix: Some(Fix {
-            edits: vec![Edit {
-                range: Range { start, end },
-                replacement,
-            }],
-            applicability: Applicability::Unsafe,
-        }),
-        symbol: host.name.clone(),
-    })
-}
-
-fn sorted_block_indices(blocks: &[SemanticBlock]) -> Vec<usize> {
-    let mut indices: Vec<usize> = (0..blocks.len()).collect();
-    indices.sort_by_key(|index| (block_order(blocks[*index].kind), *index));
-    indices
-}
-
-fn block_order(kind: BlockKind) -> usize {
-    match kind {
-        BlockKind::Parameters => 0,
-        BlockKind::Receives => 1,
-        BlockKind::Returns => 2,
-        BlockKind::Yields => 3,
-        BlockKind::Raises => 4,
-        BlockKind::Warns => 5,
-        BlockKind::Attributes => 6,
-        BlockKind::Methods => 7,
-        BlockKind::Notes => 8,
-        BlockKind::References => 9,
-        BlockKind::Examples => 10,
-        BlockKind::SeeAlso => 11,
-        BlockKind::Other => 12,
-        _ => 12,
-    }
-}
-
-fn check_doc002(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let is_numpy = semantic.style() == DocstringStyle::Numpy;
-    for entry_range in doc_entry_ranges(semantic) {
-        let Some(block) = semantic.blocks().iter().find(|block| {
-            block.entry_range.start() <= entry_range.start() && entry_range.start() < block.entry_range.end()
-        }) else {
-            continue;
-        };
-        let line_start = source.source()[..entry_range.start()]
-            .rfind('\n')
-            .map_or(0, |index| index + 1);
-        let entry_start = first_non_ws_on_line(source.source(), entry_range.start(), entry_range.end());
-        let actual_indent = entry_start - line_start;
-        let section_indent = block.header_indent_range.end() - block.header_indent_range.start();
-        let expected_indent = if is_numpy { section_indent } else { section_indent + 4 };
-        if actual_indent == expected_indent {
-            continue;
-        }
-        diagnostics.push(Diagnostic {
-            rule: "DOC002",
-            message: format!("Expected {expected_indent}-space indentation, found {actual_indent}."),
-            range: TextRange::new(entry_start, entry_range.end()).into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: Range {
-                        start: line_start,
-                        end: entry_start,
-                    },
-                    replacement: " ".repeat(expected_indent),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-    diagnostics
-}
-
-fn first_non_ws_on_line(source: &str, start: usize, end: usize) -> usize {
-    let bytes = source.as_bytes();
-    let mut offset = start;
-    while offset < end && matches!(bytes[offset], b' ' | b'\t') {
-        offset += 1;
-    }
-    offset
-}
-
-fn doc_entry_ranges(semantic: &docstring_cst::semantic::SemanticView) -> Vec<TextRange> {
-    let mut ranges = Vec::new();
-    ranges.extend(semantic.parameters().iter().map(|entry| entry.entry_range));
-    ranges.extend(semantic.returns().iter().map(|entry| entry.entry_range));
-    ranges.extend(semantic.yields().iter().map(|entry| entry.entry_range));
-    ranges.extend(semantic.raises().iter().map(|entry| entry.entry_range));
-    ranges.extend(semantic.warns().iter().map(|entry| entry.entry_range));
-    ranges.extend(semantic.attributes().iter().map(|entry| entry.entry_range));
-    ranges.extend(semantic.methods().iter().map(|entry| entry.entry_range));
-    ranges.sort_by_key(|range| range.start());
-    ranges.dedup();
-    ranges
-}
-
-fn check_doc003(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Option<Diagnostic> {
-    if !matches!(host.kind, HostKind::Module | HostKind::Class | HostKind::Function) {
-        return None;
-    }
-    if semantic.style() != DocstringStyle::Plain {
-        return None;
-    }
-    if semantic.extended_summary().is_some() || !semantic.blocks().is_empty() {
-        return None;
-    }
-    let summary = semantic.summary()?;
-    let open_quote = semantic.open_quote()?;
-    let close_quote = semantic.close_quote()?;
-    let body = source
-        .source()
-        .get(open_quote.entry_range.end()..close_quote.entry_range.start())?;
-    if !body.contains('\n') {
-        return None;
-    }
-    let non_empty_lines = body.lines().filter(|line| !line.trim().is_empty()).count();
-    if non_empty_lines != 1 {
-        return None;
-    }
-    let summary_text = source.slice(summary.entry_range)?.trim();
-    if summary_text.is_empty() {
-        return None;
-    }
-    let open_text = source.slice(open_quote.entry_range)?;
-    let close_text = source.slice(close_quote.entry_range)?;
-    Some(Diagnostic {
-        rule: "DOC003",
-        message: "One-line docstring should be written on a single line.".to_string(),
-        range: summary.entry_range.into(),
-        fix: Some(Fix {
-            edits: vec![Edit {
-                range: host.docstring_range,
-                replacement: format!("{open_text}{summary_text}{close_text}"),
-            }],
-            applicability: Applicability::Safe,
-        }),
-        symbol: host.name.clone(),
-    })
-}
-
-fn check_raise_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
-    let mut diagnostics = Vec::new();
-    let raises_block = semantic
-        .blocks()
-        .iter()
-        .find(|block| block.kind == docstring_cst::semantic::BlockKind::Raises);
-    let raises = semantic.raises();
-
-    if host.name.as_deref() != Some("__init__")
-        && !host.raised_exceptions.is_empty()
-        && raises_block.is_none()
-        && raises.is_empty()
-    {
-        let insert_offset = semantic
-            .close_quote()
-            .map(|quote| quote.entry_range.start())
-            .unwrap_or(host.docstring_range.end);
-        diagnostics.push(Diagnostic {
-            rule: "RIS001",
-            message: "Missing Raises section in docstring.".to_string(),
-            range: semantic
-                .summary()
-                .map(|summary| summary.entry_range.into())
-                .unwrap_or(host.docstring_range),
-            fix: Some(Fix {
-                edits: vec![Edit::insert(
-                    insert_offset,
-                    raises_section_stub(source, host, semantic.style()),
-                )],
-                applicability: Applicability::Unsafe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    if host.raised_exceptions.is_empty()
-        && let Some(block) = raises_block
-    {
-        diagnostics.push(Diagnostic {
-            rule: "RIS002",
-            message: "Unnecessary Raises section in docstring.".to_string(),
-            range: block.name_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: block.entry_range.into(),
-                    replacement: String::new(),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    for raise_entry in raises {
-        let has_description = raise_entry
-            .description_range
-            .and_then(|range| source.slice(range))
-            .is_some_and(|text| !text.trim().is_empty());
-        if !has_description {
-            diagnostics.push(Diagnostic {
-                rule: "RIS003",
-                message: "Raises entry has no description.".to_string(),
-                range: raise_entry
-                    .exception_range
-                    .or(raise_entry.description_range)
-                    .unwrap_or(raise_entry.entry_range)
-                    .into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    if let Some(block) = raises_block {
-        let documented_names: Vec<&str> = raises
-            .iter()
-            .filter_map(|entry| entry.exception_range.and_then(|range| source.slice(range)))
-            .map(bare_exception_name)
-            .collect();
-
-        for raised_exception in unique_raised_exception_names(host) {
-            if documented_names
-                .iter()
-                .any(|documented| *documented == raised_exception)
-            {
-                continue;
-            }
-            diagnostics.push(Diagnostic {
-                rule: "RIS004",
-                message: format!("Raised exception '{raised_exception}' not documented in Raises section."),
-                range: block.name_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit::insert(
-                        block.entry_range.end(),
-                        raises_entry_append_text(source, block.name_range, semantic.style(), raised_exception),
-                    )],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    let raised_names = unique_raised_exception_names(host);
-    for raise_entry in raises {
-        let Some(exception_range) = raise_entry.exception_range else {
-            continue;
-        };
-        let Some(documented_name) = source.slice(exception_range) else {
-            continue;
-        };
-        let bare_documented_name = bare_exception_name(documented_name);
-        if raised_names
-            .iter()
-            .any(|raised_name| *raised_name == bare_documented_name)
-        {
-            continue;
-        }
-        diagnostics.push(Diagnostic {
-            rule: "RIS005",
-            message: format!("Raises entry '{documented_name}' not raised in function body."),
-            range: exception_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: raise_entry.entry_range.into(),
-                    replacement: String::new(),
-                }],
-                applicability: Applicability::Unsafe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    diagnostics
-}
-
 fn raised_exception_from_record(source: &str, record: &RaiseRecord) -> Option<RaisedException> {
     let range: Range = record.name_range.into();
     let name = source.get(range.start..range.end)?.trim().to_string();
@@ -1447,7 +312,7 @@ fn raised_exception_from_record(source: &str, record: &RaiseRecord) -> Option<Ra
     })
 }
 
-fn unique_raised_exception_names(host: &DocstringHost) -> Vec<&str> {
+pub(crate) fn unique_raised_exception_names(host: &DocstringHost) -> Vec<&str> {
     let mut names = Vec::new();
     for exception in &host.raised_exceptions {
         let name = bare_exception_name(&exception.name);
@@ -1458,11 +323,11 @@ fn unique_raised_exception_names(host: &DocstringHost) -> Vec<&str> {
     names
 }
 
-fn bare_exception_name(name: &str) -> &str {
+pub(crate) fn bare_exception_name(name: &str) -> &str {
     name.trim().rsplit('.').next().unwrap_or(name.trim())
 }
 
-fn raises_section_stub(source: &Source, host: &DocstringHost, style: DocstringStyle) -> String {
+pub(crate) fn raises_section_stub(source: &Source, host: &DocstringHost, style: DocstringStyle) -> String {
     let indent = line_indent_before(source.source(), host.docstring_range.start);
     let names = unique_raised_exception_names(host);
     match style {
@@ -1485,7 +350,7 @@ fn raises_section_stub(source: &Source, host: &DocstringHost, style: DocstringSt
     }
 }
 
-fn raises_entry_append_text(
+pub(crate) fn raises_entry_append_text(
     source: &Source,
     header_range: TextRange,
     style: DocstringStyle,
@@ -1498,385 +363,19 @@ fn raises_entry_append_text(
     }
 }
 
-fn check_return_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-    config: AnalysisConfig,
-) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
-    let mut diagnostics = Vec::new();
-    let returns_block = semantic
-        .blocks()
-        .iter()
-        .find(|block| block.kind == docstring_cst::semantic::BlockKind::Returns);
-    let returns = semantic.returns();
-
-    if !host.has_yield
-        && returns_block.is_none()
-        && returns.is_empty()
-        && let Some(return_annotation) = meaningful_return_annotation(source, host)
-    {
-        let insert_offset = semantic
-            .close_quote()
-            .map(|quote| quote.entry_range.start())
-            .unwrap_or(host.docstring_range.end);
-        diagnostics.push(Diagnostic {
-            rule: "RTN001",
-            message: "Missing Returns section in docstring.".to_string(),
-            range: semantic
-                .summary()
-                .map(|summary| summary.entry_range.into())
-                .unwrap_or(host.docstring_range),
-            fix: Some(Fix {
-                edits: vec![Edit::insert(
-                    insert_offset,
-                    returns_section_stub(source, host, semantic.style(), return_annotation),
-                )],
-                applicability: Applicability::Unsafe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    if !host.has_return_value
-        && let Some(block) = returns_block
-    {
-        diagnostics.push(Diagnostic {
-            rule: "RTN002",
-            message: "Unnecessary Returns section in docstring.".to_string(),
-            range: block.name_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: block.entry_range.into(),
-                    replacement: String::new(),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    for return_entry in returns {
-        let has_description = return_entry
-            .description_range
-            .and_then(|range| source.slice(range))
-            .is_some_and(|text| !text.trim().is_empty());
-        if !has_description {
-            diagnostics.push(Diagnostic {
-                rule: "RTN003",
-                message: "Returns section has no description.".to_string(),
-                range: return_entry
-                    .type_range
-                    .or(return_entry.description_range)
-                    .unwrap_or(return_entry.entry_range)
-                    .into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    let signature_type = return_annotation(source, host);
-    for return_entry in returns {
-        let doc_type = return_entry
-            .type_range
-            .and_then(|range| source.slice(range))
-            .map(str::trim)
-            .filter(|text| !text.is_empty());
-        match (doc_type, signature_type) {
-            (Some(doc_type), Some(signature_type)) if !types_match(doc_type, signature_type) => {
-                diagnostics.push(Diagnostic {
-                    rule: "RTN101",
-                    message: format!("Docstring return type '{doc_type}' does not match type hint '{signature_type}'."),
-                    range: return_entry.type_range.unwrap().into(),
-                    fix: Some(Fix {
-                        edits: vec![Edit {
-                            range: return_entry.type_range.unwrap().into(),
-                            replacement: signature_type.to_string(),
-                        }],
-                        applicability: Applicability::Unsafe,
-                    }),
-                    symbol: host.name.clone(),
-                });
-            }
-            (None, None) if config.type_annotation_style.is_none() => {
-                diagnostics.push(Diagnostic {
-                    rule: "RTN102",
-                    message: "Return type not in docstring or signature.".to_string(),
-                    range: return_entry.entry_range.into(),
-                    fix: None,
-                    symbol: host.name.clone(),
-                });
-            }
-            _ => {}
-        }
-
-        if matches!(
-            config.type_annotation_style,
-            Some(TypeAnnotationStyle::Docstring | TypeAnnotationStyle::Both)
-        ) && doc_type.is_none()
-        {
-            diagnostics.push(Diagnostic {
-                rule: "RTN103",
-                message: "Return has no type in docstring.".to_string(),
-                range: return_entry.entry_range.into(),
-                fix: signature_type.map(|signature_type| Fix {
-                    edits: vec![Edit::insert(
-                        return_entry.entry_range.start(),
-                        return_type_insert_text(semantic.style(), signature_type),
-                    )],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(config.type_annotation_style, Some(TypeAnnotationStyle::Signature))
-            && doc_type.is_some()
-            && signature_type.is_some()
-        {
-            let type_range = return_entry.type_range.unwrap();
-            diagnostics.push(Diagnostic {
-                rule: "RTN104",
-                message: "Redundant return type in docstring; type annotation exists in signature.".to_string(),
-                range: type_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit {
-                        range: redundant_type_delete_range(source, semantic.style(), type_range),
-                        replacement: String::new(),
-                    }],
-                    applicability: Applicability::Safe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(
-            config.type_annotation_style,
-            Some(TypeAnnotationStyle::Signature | TypeAnnotationStyle::Both)
-        ) && signature_type.is_none()
-        {
-            diagnostics.push(Diagnostic {
-                rule: "RTN105",
-                message: "Return has no type annotation in signature.".to_string(),
-                range: return_entry.entry_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(config.type_annotation_style, Some(TypeAnnotationStyle::Docstring)) && signature_type.is_some() {
-            diagnostics.push(Diagnostic {
-                rule: "RTN106",
-                message: "Return has a type annotation in signature; types belong in the docstring.".to_string(),
-                range: return_entry.entry_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    diagnostics
-}
-
-fn check_yield_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-    config: AnalysisConfig,
-) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
-    let mut diagnostics = Vec::new();
-    let yields_block = semantic
-        .blocks()
-        .iter()
-        .find(|block| block.kind == docstring_cst::semantic::BlockKind::Yields);
-    let yields = semantic.yields();
-
-    if host.has_yield && yields_block.is_none() && yields.is_empty() {
-        let insert_offset = semantic
-            .close_quote()
-            .map(|quote| quote.entry_range.start())
-            .unwrap_or(host.docstring_range.end);
-        diagnostics.push(Diagnostic {
-            rule: "YLD001",
-            message: "Missing Yields section in docstring.".to_string(),
-            range: semantic
-                .summary()
-                .map(|summary| summary.entry_range.into())
-                .unwrap_or(host.docstring_range),
-            fix: Some(Fix {
-                edits: vec![Edit::insert(
-                    insert_offset,
-                    yields_section_stub(source, host, semantic.style(), yield_type_annotation(source, host)),
-                )],
-                applicability: Applicability::Unsafe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    if !host.has_yield
-        && let Some(block) = yields_block
-    {
-        diagnostics.push(Diagnostic {
-            rule: "YLD002",
-            message: "Unnecessary Yields section in docstring.".to_string(),
-            range: block.name_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: block.entry_range.into(),
-                    replacement: String::new(),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: host.name.clone(),
-        });
-    }
-
-    for yield_entry in yields {
-        let has_description = yield_entry
-            .description_range
-            .and_then(|range| source.slice(range))
-            .is_some_and(|text| !text.trim().is_empty());
-        if !has_description {
-            diagnostics.push(Diagnostic {
-                rule: "YLD003",
-                message: "Yields section has no description.".to_string(),
-                range: yield_entry
-                    .type_range
-                    .or(yield_entry.description_range)
-                    .unwrap_or(yield_entry.entry_range)
-                    .into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    let signature_type = yield_type_annotation(source, host);
-    for yield_entry in yields {
-        let doc_type = yield_entry
-            .type_range
-            .and_then(|range| source.slice(range))
-            .map(str::trim)
-            .filter(|text| !text.is_empty());
-        match (doc_type, signature_type) {
-            (Some(doc_type), Some(signature_type)) if !types_match(doc_type, signature_type) => {
-                diagnostics.push(Diagnostic {
-                    rule: "YLD101",
-                    message: format!("Docstring yield type '{doc_type}' does not match type hint '{signature_type}'."),
-                    range: yield_entry.type_range.unwrap().into(),
-                    fix: Some(Fix {
-                        edits: vec![Edit {
-                            range: yield_entry.type_range.unwrap().into(),
-                            replacement: signature_type.to_string(),
-                        }],
-                        applicability: Applicability::Unsafe,
-                    }),
-                    symbol: host.name.clone(),
-                });
-            }
-            (None, None) if config.type_annotation_style.is_none() => {
-                diagnostics.push(Diagnostic {
-                    rule: "YLD102",
-                    message: "Yield type not in docstring or signature.".to_string(),
-                    range: yield_entry.entry_range.into(),
-                    fix: None,
-                    symbol: host.name.clone(),
-                });
-            }
-            _ => {}
-        }
-
-        if matches!(
-            config.type_annotation_style,
-            Some(TypeAnnotationStyle::Docstring | TypeAnnotationStyle::Both)
-        ) && doc_type.is_none()
-        {
-            diagnostics.push(Diagnostic {
-                rule: "YLD103",
-                message: "Yield has no type in docstring.".to_string(),
-                range: yield_entry.entry_range.into(),
-                fix: signature_type.map(|signature_type| Fix {
-                    edits: vec![Edit::insert(
-                        yield_entry.entry_range.start(),
-                        return_type_insert_text(semantic.style(), signature_type),
-                    )],
-                    applicability: Applicability::Unsafe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(config.type_annotation_style, Some(TypeAnnotationStyle::Signature))
-            && doc_type.is_some()
-            && signature_type.is_some()
-        {
-            let type_range = yield_entry.type_range.unwrap();
-            diagnostics.push(Diagnostic {
-                rule: "YLD104",
-                message: "Redundant yield type in docstring; type annotation exists in signature.".to_string(),
-                range: type_range.into(),
-                fix: Some(Fix {
-                    edits: vec![Edit {
-                        range: redundant_type_delete_range(source, semantic.style(), type_range),
-                        replacement: String::new(),
-                    }],
-                    applicability: Applicability::Safe,
-                }),
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(
-            config.type_annotation_style,
-            Some(TypeAnnotationStyle::Signature | TypeAnnotationStyle::Both)
-        ) && signature_type.is_none()
-        {
-            diagnostics.push(Diagnostic {
-                rule: "YLD105",
-                message: "Yield has no type annotation in signature.".to_string(),
-                range: yield_entry.entry_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-
-        if matches!(config.type_annotation_style, Some(TypeAnnotationStyle::Docstring)) && signature_type.is_some() {
-            diagnostics.push(Diagnostic {
-                rule: "YLD106",
-                message: "Yield has a type annotation in signature; types belong in the docstring.".to_string(),
-                range: yield_entry.entry_range.into(),
-                fix: None,
-                symbol: host.name.clone(),
-            });
-        }
-    }
-
-    diagnostics
-}
-
-fn return_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
+pub(crate) fn return_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
     let range = host.return_annotation_range?;
     let text = source.slice(range.into_text_range())?.trim();
     let annotation = text.strip_prefix("->")?.trim();
     (!annotation.is_empty()).then_some(annotation)
 }
 
-fn meaningful_return_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
+pub(crate) fn meaningful_return_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
     let annotation = return_annotation(source, host)?;
     (!annotation.is_empty() && annotation != "None").then_some(annotation)
 }
 
-fn types_match(docstring_type: &str, signature_type: &str) -> bool {
+pub(crate) fn types_match(docstring_type: &str, signature_type: &str) -> bool {
     normalize_type_for_comparison(docstring_type) == normalize_type_for_comparison(signature_type)
 }
 
@@ -1889,14 +388,14 @@ fn normalize_type_for_comparison(type_text: &str) -> String {
         .collect()
 }
 
-fn return_type_insert_text(style: DocstringStyle, signature_type: &str) -> String {
+pub(crate) fn return_type_insert_text(style: DocstringStyle, signature_type: &str) -> String {
     match style {
         DocstringStyle::Numpy => format!("{signature_type}\n"),
         _ => format!("{signature_type}: "),
     }
 }
 
-fn redundant_type_delete_range(source: &Source, style: DocstringStyle, type_range: TextRange) -> Range {
+pub(crate) fn redundant_type_delete_range(source: &Source, style: DocstringStyle, type_range: TextRange) -> Range {
     let bytes = source.source().as_bytes();
     let mut end = type_range.end();
     match style {
@@ -1920,7 +419,7 @@ fn redundant_type_delete_range(source: &Source, style: DocstringStyle, type_rang
     }
 }
 
-fn returns_section_stub(
+pub(crate) fn returns_section_stub(
     source: &Source,
     host: &DocstringHost,
     style: DocstringStyle,
@@ -1935,7 +434,7 @@ fn returns_section_stub(
     }
 }
 
-fn yields_section_stub(
+pub(crate) fn yields_section_stub(
     source: &Source,
     host: &DocstringHost,
     style: DocstringStyle,
@@ -1951,7 +450,7 @@ fn yields_section_stub(
     }
 }
 
-fn yield_type_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
+pub(crate) fn yield_type_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
     let range = host.return_annotation_range?;
     let text = source.slice(range.into_text_range())?.trim();
     let annotation = text.strip_prefix("->")?.trim();
@@ -1973,60 +472,9 @@ fn extract_yield_type(annotation: &str) -> Option<&str> {
     (!first.is_empty()).then_some(first)
 }
 
-fn line_indent_before(source: &str, offset: usize) -> &str {
+pub(crate) fn line_indent_before(source: &str, offset: usize) -> &str {
     let line_start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
     &source[line_start..offset]
-}
-
-fn check_summary_rules(
-    source: &Source,
-    host: &DocstringHost,
-    semantic: &docstring_cst::semantic::SemanticView,
-) -> Vec<Diagnostic> {
-    let Some(summary) = semantic.summary() else {
-        return vec![Diagnostic {
-            rule: "SUM001",
-            message: "Docstring has no summary line.".to_string(),
-            range: host.docstring_range,
-            fix: None,
-            symbol: host.name.clone(),
-        }];
-    };
-
-    let summary_range = summary.entry_range;
-    let summary_text = source.slice(summary_range).unwrap_or("").trim();
-    if summary_text.is_empty() {
-        return vec![Diagnostic {
-            rule: "SUM001",
-            message: "Docstring has no summary line.".to_string(),
-            range: host.docstring_range,
-            fix: None,
-            symbol: host.name.clone(),
-        }];
-    }
-
-    if matches!(summary_text.chars().next_back(), Some('.' | '!' | '?')) {
-        return Vec::new();
-    }
-
-    vec![Diagnostic {
-        rule: "SUM002",
-        message: "Summary should end with a period.".to_string(),
-        range: summary_range.into(),
-        fix: Some(Fix {
-            edits: vec![Edit::insert(summary_insert_offset(source, summary_range), ".")],
-            applicability: Applicability::Safe,
-        }),
-        symbol: host.name.clone(),
-    }]
-}
-
-fn summary_insert_offset(source: &Source, range: TextRange) -> usize {
-    let Some(text) = source.slice(range) else {
-        return range.end();
-    };
-    let trailing_whitespace_len = text.len() - text.trim_end().len();
-    range.end() - trailing_whitespace_len
 }
 
 #[cfg(test)]
@@ -3224,7 +1672,38 @@ def values() -> Iterator[int]:
     }
 
     #[test]
-    fn emits_prm201_for_default_parameter_missing_optional() {
+    fn emits_prm201_when_enabled_for_default_parameter_missing_optional() {
+        let source = r#"def value(x: int = 0) -> None:
+    """Do something.
+
+    Args:
+        x (int): The value.
+    """
+    pass
+"#;
+
+        let report = analyze_source_with_config(
+            source,
+            AnalysisConfig {
+                type_annotation_style: None,
+                class_docstring_style: None,
+                allow_optional_shorthand: false,
+                enable_prm201: true,
+                enable_prm202: false,
+            },
+        );
+        let diagnostic = single_rule(&report, "PRM201");
+        assert_eq!(
+            diagnostic.message,
+            "Parameter 'x' has default value but docstring does not mention 'optional'."
+        );
+        let fix = diagnostic.fix.as_ref().expect("PRM201 should add optional");
+        assert_eq!(fix.applicability, Applicability::Unsafe);
+        assert_eq!(fix.edits[0].replacement, ", optional");
+    }
+
+    #[test]
+    fn prm201_is_disabled_by_default() {
         let source = r#"def value(x: int = 0) -> None:
     """Do something.
 
@@ -3235,14 +1714,7 @@ def values() -> Iterator[int]:
 "#;
 
         let report = analyze_source(source);
-        let diagnostic = single_rule(&report, "PRM201");
-        assert_eq!(
-            diagnostic.message,
-            "Parameter 'x' has default value but docstring does not mention 'optional'."
-        );
-        let fix = diagnostic.fix.as_ref().expect("PRM201 should add optional");
-        assert_eq!(fix.applicability, Applicability::Unsafe);
-        assert_eq!(fix.edits[0].replacement, ", optional");
+        assert!(report.diagnostics.iter().all(|diagnostic| diagnostic.rule != "PRM201"));
     }
 
     #[test]
@@ -3277,6 +1749,7 @@ def values() -> Iterator[int]:
                 type_annotation_style: None,
                 class_docstring_style: None,
                 allow_optional_shorthand: false,
+                enable_prm201: false,
                 enable_prm202: true,
             },
         );
@@ -3312,6 +1785,7 @@ def values() -> Iterator[int]:
                 type_annotation_style: Some(type_annotation_style),
                 class_docstring_style: None,
                 allow_optional_shorthand: false,
+                enable_prm201: false,
                 enable_prm202: false,
             },
         )
@@ -3324,6 +1798,7 @@ def values() -> Iterator[int]:
                 type_annotation_style: None,
                 class_docstring_style: Some(class_docstring_style),
                 allow_optional_shorthand: false,
+                enable_prm201: false,
                 enable_prm202: false,
             },
         )

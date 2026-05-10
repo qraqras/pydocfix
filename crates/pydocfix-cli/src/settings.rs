@@ -1,7 +1,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use pydocfix_core::{AnalysisConfig, Diagnostic};
+use pydocfix_core::{AnalysisConfig, Diagnostic, Linter, RuleFilter};
 
 use crate::args::CliArgs;
 use crate::baseline::resolve_config_path;
@@ -16,8 +16,7 @@ pub(crate) struct ResolvedSettings {
     pub(crate) generate_baseline: bool,
     pub(crate) output_format: OutputFormat,
     pub(crate) analysis_config: AnalysisConfig,
-    pub(crate) select: Vec<String>,
-    pub(crate) ignore: Vec<String>,
+    pub(crate) rule_filter: RuleFilter,
     pub(crate) paths: Vec<PathBuf>,
     pub(crate) exclude: Vec<String>,
     pub(crate) project_root: Option<PathBuf>,
@@ -49,6 +48,8 @@ impl ResolvedSettings {
             .or(project_config.baseline.as_deref())
             .map(|path| resolve_config_path(path, project_root.as_deref()));
 
+        let rule_filter = RuleFilter::new(select.clone(), ignore.clone());
+
         Self {
             debug_docstrings: cli_args.debug_docstrings,
             fix: cli_args.fix,
@@ -60,10 +61,10 @@ impl ResolvedSettings {
                 type_annotation_style: cli_args.type_annotation_style.or(project_config.type_annotation_style),
                 class_docstring_style: cli_args.class_docstring_style.or(project_config.class_docstring_style),
                 allow_optional_shorthand: cli_args.allow_optional_shorthand || project_config.allow_optional_shorthand,
-                enable_prm202: rule_filter_enables(&select, "PRM202"),
+                enable_prm201: false,
+                enable_prm202: false,
             },
-            select,
-            ignore,
+            rule_filter,
             paths: cli_args.paths,
             exclude: project_config.exclude,
             project_root,
@@ -73,26 +74,12 @@ impl ResolvedSettings {
     }
 
     pub(crate) fn filter_diagnostics(&self, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
-        diagnostics
-            .into_iter()
-            .filter(|diagnostic| self.diagnostic_is_enabled(diagnostic.rule))
-            .collect()
+        self.rule_filter.filter_diagnostics(diagnostics)
     }
 
-    fn diagnostic_is_enabled(&self, rule: &str) -> bool {
-        if !self.select.is_empty() && !self.select.iter().any(|pattern| rule_matches(pattern, rule)) {
-            return false;
-        }
-        !self.ignore.iter().any(|pattern| rule_matches(pattern, rule))
+    pub(crate) fn linter(&self) -> Linter {
+        Linter::new(self.analysis_config).with_rule_filter(self.rule_filter.clone())
     }
-}
-
-fn rule_matches(pattern: &str, rule: &str) -> bool {
-    pattern == "ALL" || rule == pattern || rule.starts_with(pattern)
-}
-
-fn rule_filter_enables(select: &[String], rule: &str) -> bool {
-    select.iter().any(|pattern| rule_matches(pattern, rule))
 }
 
 #[cfg(test)]
@@ -136,7 +123,7 @@ mod tests {
 
         let settings = ResolvedSettings::resolve(cli_args, project_config);
 
-        assert_eq!(settings.select, vec!["SUM"]);
+        assert_eq!(settings.rule_filter.select, vec!["SUM"]);
         assert_eq!(
             settings
                 .filter_diagnostics(vec![diagnostic("SUM002"), diagnostic("PRM001")])
@@ -146,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn all_select_enables_prm202() {
+    fn all_select_enables_default_disabled_prm_rules() {
         let cli_args = CliArgs {
             debug_docstrings: false,
             fix: false,
@@ -167,6 +154,7 @@ mod tests {
 
         let settings = ResolvedSettings::resolve(cli_args, ProjectConfig::default());
 
-        assert!(settings.analysis_config.enable_prm202);
+        assert!(settings.rule_filter.enables("PRM201"));
+        assert!(settings.rule_filter.enables("PRM202"));
     }
 }

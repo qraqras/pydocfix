@@ -225,7 +225,7 @@ Each rule is classified as **safe** fix, **unsafe** fix, or report-only.
 | PRM104 | | safe | Redundant type in docstring (signature has annotation) |
 | PRM105 | | — | No type annotation in signature (`type_annotation_style = "signature"` or `"both"`) |
 | PRM106 | | — | Redundant type annotation in signature (`type_annotation_style = "docstring"`) |
-| PRM201 | ✅ | unsafe | Missing `optional` for parameter with default |
+| PRM201 | | unsafe | Missing `optional` for parameter with default |
 | PRM202 | | unsafe | Missing `default` for parameter with default |
 
 ### Returns (RTN)

@@ -131,8 +131,53 @@ pub struct AnalysisConfig {
     pub class_docstring_style: Option<ClassDocstringStyle>,
     /// Whether optional shorthand should be normalized when comparing types.
     pub allow_optional_shorthand: bool,
+    /// Enable PRM201, which is disabled by default.
+    pub enable_prm201: bool,
     /// Enable PRM202, which is disabled by default in legacy pydocfix.
     pub enable_prm202: bool,
+}
+
+/// Rule selection applied by the core analysis engine.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RuleFilter {
+    /// Rule selectors to enable. Empty means all default-enabled rules.
+    pub select: Vec<String>,
+    /// Rule selectors to disable.
+    pub ignore: Vec<String>,
+}
+
+impl RuleFilter {
+    /// Create a rule filter from select and ignore lists.
+    pub fn new(select: Vec<String>, ignore: Vec<String>) -> Self {
+        Self { select, ignore }
+    }
+
+    /// Return whether a diagnostic for `rule` should be emitted.
+    pub fn allows(&self, rule: &str) -> bool {
+        if !self.select.is_empty() && !self.select.iter().any(|pattern| rule_matches(pattern, rule)) {
+            return false;
+        }
+        !self.ignore.iter().any(|pattern| rule_matches(pattern, rule))
+    }
+
+    /// Return whether a default-disabled rule was explicitly selected.
+    pub fn enables(&self, rule: &str) -> bool {
+        !self.select.is_empty()
+            && self.select.iter().any(|pattern| rule_matches(pattern, rule))
+            && !self.ignore.iter().any(|pattern| rule_matches(pattern, rule))
+    }
+
+    /// Filter diagnostics according to this rule filter.
+    pub fn filter_diagnostics(&self, diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+        diagnostics
+            .into_iter()
+            .filter(|diagnostic| self.allows(diagnostic.rule))
+            .collect()
+    }
+}
+
+fn rule_matches(pattern: &str, rule: &str) -> bool {
+    pattern == "ALL" || rule == pattern || rule.starts_with(pattern)
 }
 
 /// Whether a fix can be applied automatically without unsafe behavior changes.
