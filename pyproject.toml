@@ -3,9 +3,9 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
-name = "pydocfix"
+name = "pydocsync"
 version = "0.1.0b2"
-description = "A Rust-powered Python docstring linter with auto-fix support"
+description = "A Rust-powered Python signature-docstring synchronizer"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
@@ -23,10 +23,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/ryumasai/pydocfix"
-Repository = "https://github.com/ryumasai/pydocfix"
-Issues = "https://github.com/ryumasai/pydocfix/issues"
-Changelog = "https://github.com/ryumasai/pydocfix/releases"
+Homepage = "https://github.com/ryumasai/pydocsync"
+Repository = "https://github.com/ryumasai/pydocsync"
+Issues = "https://github.com/ryumasai/pydocsync/issues"
+Changelog = "https://github.com/ryumasai/pydocsync/releases"
 
 [dependency-groups]
 dev = [
@@ -46,8 +46,8 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 
 [tool.maturin]
 bindings = "bin"
-manifest-path = "crates/pydocfix-cli/Cargo.toml"
+manifest-path = "crates/pydocsync-cli/Cargo.toml"
 strip = true
 
-[tool.pydocfix]
+[tool.pydocsync]
 exclude = ["tests/**/fixtures/"]

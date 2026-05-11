@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Benchmark the Rust pydocfix CLI against pydoclint.
+"""Benchmark the Rust pydocsync CLI against pydoclint.
 
-The default targets and scan-root selection mirror the historical pydocfix
+The default targets and scan-root selection mirror the historical pydocsync
 benchmark used for the README: shallow-clone OSS projects, then benchmark the
 main Python package directory rather than the whole repository.
 """
@@ -45,13 +45,13 @@ class BenchmarkResult:
     scan_path: Path
     files: int
     lines: int
-    pydocfix_median: float
-    pydocfix_stddev: float
-    pydocfix_single_median: float
-    pydocfix_single_stddev: float
+    pydocsync_median: float
+    pydocsync_stddev: float
+    pydocsync_single_median: float
+    pydocsync_single_stddev: float
     pydoclint_median: float
     pydoclint_stddev: float
-    pydocfix_violations: int
+    pydocsync_violations: int
     pydoclint_violations: int
 
 
@@ -61,9 +61,9 @@ def main() -> None:
     parser.add_argument("--runs", type=int, default=DEFAULT_RUNS)
     parser.add_argument("--docstyle", choices=["google", "numpy"], default="numpy")
     parser.add_argument(
-        "--pydocfix",
-        default=str(Path(__file__).resolve().parents[1] / "target" / "release" / "pydocfix"),
-        help="Path to the Rust pydocfix executable",
+        "--pydocsync",
+        default=str(Path(__file__).resolve().parents[1] / "target" / "release" / "pydocsync"),
+        help="Path to the Rust pydocsync executable",
     )
     parser.add_argument("--pydoclint", default="pydoclint", help="Path to pydoclint")
     args = parser.parse_args()
@@ -71,7 +71,7 @@ def main() -> None:
     if not shutil.which("hyperfine"):
         sys.exit("hyperfine is required")
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="pydocfix_bench_"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="pydocsync_bench_"))
     try:
         targets = [target.strip() for target in args.target.split(",") if target.strip()]
         results = [benchmark_target(target, args, tmp_dir) for target in targets]
@@ -85,8 +85,8 @@ def benchmark_target(target: str, args: argparse.Namespace, tmp_dir: Path) -> Be
     scan_path = find_python_src(repo_root)
     files, lines = count_python_files(scan_path)
 
-    pydocfix_cmd = [args.pydocfix, "check", "--output-format", "concise", str(scan_path)]
-    pydocfix_single_cmd = [args.pydocfix, "check", "--output-format", "concise", "--jobs", "1", str(scan_path)]
+    pydocsync_cmd = [args.pydocsync, "check", "--output-format", "concise", str(scan_path)]
+    pydocsync_single_cmd = [args.pydocsync, "check", "--output-format", "concise", "--jobs", "1", str(scan_path)]
     pydoclint_cmd = [
         args.pydoclint,
         "--quiet",
@@ -95,10 +95,10 @@ def benchmark_target(target: str, args: argparse.Namespace, tmp_dir: Path) -> Be
         str(scan_path),
     ]
 
-    pydocfix_times, pydocfix_stddev = run_hyperfine(pydocfix_cmd, args.runs)
-    pydocfix_single_times, pydocfix_single_stddev = run_hyperfine(pydocfix_single_cmd, args.runs)
+    pydocsync_times, pydocsync_stddev = run_hyperfine(pydocsync_cmd, args.runs)
+    pydocsync_single_times, pydocsync_single_stddev = run_hyperfine(pydocsync_single_cmd, args.runs)
     pydoclint_times, pydoclint_stddev = run_hyperfine(pydoclint_cmd, args.runs)
-    pydocfix_output = subprocess.run(pydocfix_cmd, capture_output=True, text=True, check=False).stdout
+    pydocsync_output = subprocess.run(pydocsync_cmd, capture_output=True, text=True, check=False).stdout
     pydoclint_output = subprocess.run(pydoclint_cmd, capture_output=True, text=True, check=False)
 
     return BenchmarkResult(
@@ -107,13 +107,13 @@ def benchmark_target(target: str, args: argparse.Namespace, tmp_dir: Path) -> Be
         scan_path=scan_path,
         files=files,
         lines=lines,
-        pydocfix_median=median(pydocfix_times),
-        pydocfix_stddev=pydocfix_stddev,
-        pydocfix_single_median=median(pydocfix_single_times),
-        pydocfix_single_stddev=pydocfix_single_stddev,
+        pydocsync_median=median(pydocsync_times),
+        pydocsync_stddev=pydocsync_stddev,
+        pydocsync_single_median=median(pydocsync_single_times),
+        pydocsync_single_stddev=pydocsync_single_stddev,
         pydoclint_median=median(pydoclint_times),
         pydoclint_stddev=pydoclint_stddev,
-        pydocfix_violations=count_pydocfix_violations(pydocfix_output),
+        pydocsync_violations=count_pydocsync_violations(pydocsync_output),
         pydoclint_violations=count_pydoclint_violations(pydoclint_output.stdout + pydoclint_output.stderr),
     )
 
@@ -183,7 +183,7 @@ def run_hyperfine(cmd: list[str], runs: int) -> tuple[list[float], float]:
         json_path.unlink(missing_ok=True)
 
 
-def count_pydocfix_violations(output: str) -> int:
+def count_pydocsync_violations(output: str) -> int:
     return sum(1 for line in output.splitlines() if line.partition(":")[0])
 
 
@@ -212,38 +212,38 @@ def print_readme_tables(results: list[BenchmarkResult], runs: int, docstyle: str
     print()
     print("### Parallel (default worker pool)")
     print()
-    print("| Project | Files | Lines | pydocfix | pydoclint | Speedup |")
+    print("| Project | Files | Lines | pydocsync | pydoclint | Speedup |")
     print("|---------|------:|------:|---------:|----------:|--------:|")
     for result in results:
-        print(speed_row(result, result.pydocfix_median))
+        print(speed_row(result, result.pydocsync_median))
     print()
     print("### Single-threaded (`--jobs 1`)")
     print()
-    print("| Project | Files | Lines | pydocfix | pydoclint | Speedup |")
+    print("| Project | Files | Lines | pydocsync | pydoclint | Speedup |")
     print("|---------|------:|------:|---------:|----------:|--------:|")
     for result in results:
-        print(speed_row(result, result.pydocfix_single_median))
+        print(speed_row(result, result.pydocsync_single_median))
     print()
-    print("| Project | pydocfix | pydoclint |")
+    print("| Project | pydocsync | pydoclint |")
     print("|---------|------:|------:|")
     for result in results:
         name = f"[{result.target}]({result.url})" if result.url else result.target
-        print(f"| {name} | {result.pydocfix_violations:,} | {result.pydoclint_violations:,} |")
+        print(f"| {name} | {result.pydocsync_violations:,} | {result.pydoclint_violations:,} |")
     print()
     print(f"> Median of {runs} runs (+ {WARMUP_RUNS} warmup) via hyperfine; docstring style: `{docstyle}`.")
     print(
-        "> pydocfix uses the release Rust binary with `--output-format concise`; "
+        "> pydocsync uses the release Rust binary with `--output-format concise`; "
         "pydoclint uses `--arg-type-hints-in-signature=False --arg-type-hints-in-docstring=False`."
     )
 
 
-def speed_row(result: BenchmarkResult, pydocfix_seconds: float) -> str:
+def speed_row(result: BenchmarkResult, pydocsync_seconds: float) -> str:
     name = f"[{result.target}]({result.url})" if result.url else result.target
     lines = f"{round(result.lines / 1000)}K"
-    speedup = result.pydoclint_median / pydocfix_seconds
+    speedup = result.pydoclint_median / pydocsync_seconds
     return (
         f"| {name} | {result.files} | {lines} | "
-        f"{fmt_seconds(pydocfix_seconds)} | {fmt_seconds(result.pydoclint_median)} | **{speedup:.1f}x** |"
+        f"{fmt_seconds(pydocsync_seconds)} | {fmt_seconds(result.pydoclint_median)} | **{speedup:.1f}x** |"
     )
 
 

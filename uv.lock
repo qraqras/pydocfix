@@ -124,7 +124,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pydocfix"
+name = "pydocsync"
 version = "0.1.0b2"
 source = { editable = "." }
 

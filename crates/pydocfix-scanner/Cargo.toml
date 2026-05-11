@@ -1,9 +1,0 @@
-[package]
-name = "pydocfix-scanner"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-publish = false
-description = "Lightweight scanner for Python docstring hosts used by pydocfix"
-
-[dependencies]

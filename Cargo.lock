@@ -119,11 +119,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "pydocfix-cli"
+name = "pydocsync-cli"
 version = "0.1.0"
 dependencies = [
  "globset",
- "pydocfix-core",
+ "pydocsync-core",
  "rayon",
  "serde",
  "serde_json",
@@ -131,15 +131,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "pydocfix-core"
+name = "pydocsync-core"
 version = "0.1.0"
 dependencies = [
  "docstring-cst-parser",
- "pydocfix-scanner",
+ "pydocsync-scanner",
 ]
 
 [[package]]
-name = "pydocfix-scanner"
+name = "pydocsync-scanner"
 version = "0.1.0"
 
 [[package]]

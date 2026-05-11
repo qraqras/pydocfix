@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "crates/pydocfix-scanner",
-    "crates/pydocfix-core",
-    "crates/pydocfix-cli",
+    "crates/pydocsync-scanner",
+    "crates/pydocsync-core",
+    "crates/pydocsync-cli",
 ]
 resolver = "3"
 

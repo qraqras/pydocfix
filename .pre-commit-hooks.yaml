@@ -1,7 +1,7 @@
-- id: pydocfix
-  name: pydocfix
-  description: Lint Python docstrings for signature ↔ docstring consistency.
-  entry: pydocfix check
+- id: pydocsync
+  name: pydocsync
+  description: Keep Python signatures and docstrings in sync.
+  entry: pydocsync check
   language: python
   types: [python]
   require_serial: true

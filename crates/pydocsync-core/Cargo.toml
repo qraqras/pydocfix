@@ -1,0 +1,11 @@
+[package]
+name = "pydocsync-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Rust core for pydocsync"
+
+[dependencies]
+docstring-cst = { package = "docstring-cst-parser", path = "../../.." }
+pydocsync-scanner = { path = "../pydocsync-scanner" }
