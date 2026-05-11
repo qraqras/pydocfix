@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use pydocfix_core::{Applicability, Diagnostic, Edit, Fix, ParsedDocstring, Range};
+use pydocfix_core::{Applicability, Diagnostic, Edit, Fix, ParsedDocstring, Range, is_known_rule};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct NoqaDirective {
@@ -114,7 +114,7 @@ fn unused_noqa_diagnostics(source: &str, inline_noqa: &InlineNoqa) -> Vec<Diagno
         Some(codes) => {
             let unused = codes
                 .iter()
-                .filter(|code| is_known_builtin_rule(code) && !inline_noqa.used_codes.contains(*code))
+                .filter(|code| is_known_rule(code) && !inline_noqa.used_codes.contains(*code))
                 .cloned()
                 .collect::<Vec<_>>();
             if unused.is_empty() {
@@ -265,25 +265,6 @@ fn parse_noqa_tail(tail: &str, line_start: usize, span: Range) -> NoqaDirective 
             line_start,
             span,
         }
-    }
-}
-
-fn is_known_builtin_rule(code: &str) -> bool {
-    let Some((prefix, number)) = code.split_at_checked(3) else {
-        return false;
-    };
-    let Ok(number) = number.parse::<u16>() else {
-        return false;
-    };
-    match prefix {
-        "SUM" => (1..=2).contains(&number),
-        "PRM" => (1..=9).contains(&number) || (101..=106).contains(&number) || (201..=202).contains(&number),
-        "RTN" | "YLD" => (1..=3).contains(&number) || (101..=106).contains(&number),
-        "RIS" => (1..=5).contains(&number),
-        "DOC" => (1..=3).contains(&number),
-        "CLS" => number == 1 || (101..=106).contains(&number) || (201..=206).contains(&number),
-        "NOQ" => number == 1,
-        _ => false,
     }
 }
 

@@ -11,6 +11,7 @@ use pydocfix_scanner::{Item, ParameterRecord, RaiseRecord, summarize_python};
 
 mod linter;
 mod model;
+mod registry;
 mod rules;
 
 pub use linter::Linter;
@@ -18,6 +19,7 @@ pub use model::{
     AnalysisConfig, Applicability, ClassDocstringStyle, Diagnostic, DocstringHost, Edit, FileReport, Fix, HostKind,
     ParsedDocstring, RaisedException, Range, RuleFilter, SignatureParameter, TypeAnnotationStyle,
 };
+pub use registry::{RULES, RuleMetadata, is_default_disabled_rule, is_known_rule};
 
 /// Analyze Python source with the first Rust rewrite pipeline.
 pub fn analyze_source(source: &str) -> FileReport {
@@ -31,8 +33,8 @@ pub fn analyze_source_with_config(source: &str, config: AnalysisConfig) -> FileR
 
 pub(crate) fn analyze_source_with_filter(source: &str, config: AnalysisConfig, rule_filter: &RuleFilter) -> FileReport {
     let config = AnalysisConfig {
-        enable_prm201: config.enable_prm201 || rule_filter.enables("PRM201"),
-        enable_prm202: config.enable_prm202 || rule_filter.enables("PRM202"),
+        enable_prm201: config.enable_prm201 || rule_filter.enables_default_disabled("PRM201"),
+        enable_prm202: config.enable_prm202 || rule_filter.enables_default_disabled("PRM202"),
         ..config
     };
     let summary = summarize_python(source);

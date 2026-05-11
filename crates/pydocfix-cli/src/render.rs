@@ -13,7 +13,7 @@ pub(crate) struct DiagnosticRenderer<'a> {
     path: &'a Path,
     source: &'a str,
     format: OutputFormat,
-    line_index: LineIndex,
+    line_index: LineIndex<'a>,
     colors: Colors,
 }
 
@@ -188,19 +188,20 @@ struct PositionRange {
     end: Position,
 }
 
-struct LineIndex {
+struct LineIndex<'a> {
+    source: &'a str,
     starts: Vec<usize>,
 }
 
-impl LineIndex {
-    fn new(source: &str) -> Self {
+impl<'a> LineIndex<'a> {
+    fn new(source: &'a str) -> Self {
         let mut starts = vec![0];
         for (offset, byte) in source.bytes().enumerate() {
             if byte == b'\n' {
                 starts.push(offset + 1);
             }
         }
-        Self { starts }
+        Self { source, starts }
     }
 
     fn position_range(&self, range: Range) -> PositionRange {
@@ -211,10 +212,17 @@ impl LineIndex {
     }
 
     fn position(&self, offset: usize) -> Position {
+        let offset = offset.min(self.source.len());
         let line_index = self.starts.partition_point(|start| *start <= offset).saturating_sub(1);
+        let line_start = self.starts[line_index];
+        let column = self
+            .source
+            .get(line_start..offset)
+            .map(|text| text.chars().count() + 1)
+            .unwrap_or_else(|| offset.saturating_sub(line_start) + 1);
         Position {
             line: line_index + 1,
-            column: offset.saturating_sub(self.starts[line_index]) + 1,
+            column,
         }
     }
 }
@@ -270,5 +278,25 @@ mod tests {
         assert!(rendered.contains("2 |     \"\"\"Summary\"\"\""));
         assert!(rendered.contains("|        ^^^^^^^"));
         assert!(!rendered.contains("|        ^^^^^^^ SUM002"));
+    }
+
+    #[test]
+    fn renders_columns_by_character_not_utf8_byte() {
+        let source = "def f():\n    \"\"\"説明Summary\"\"\"\n";
+        let start = source.find("Summary").unwrap();
+        let diagnostic = Diagnostic {
+            rule: "SUM002",
+            message: "Summary doesn't end with period.".to_string(),
+            range: Range {
+                start,
+                end: start + "Summary".len(),
+            },
+            fix: None,
+            symbol: None,
+        };
+
+        let rendered = render_diagnostic(Path::new("example.py"), source, &diagnostic, OutputFormat::Concise);
+
+        assert_eq!(rendered, "example.py:2:10: SUM002 [] Summary doesn't end with period.");
     }
 }

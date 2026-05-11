@@ -1,6 +1,8 @@
 use docstring_cst::TextRange;
 use pydocfix_scanner::ByteRange;
 
+use crate::is_default_disabled_rule;
+
 /// File-absolute UTF-8 byte range.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Range {
@@ -165,6 +167,11 @@ impl RuleFilter {
         !self.select.is_empty()
             && self.select.iter().any(|pattern| rule_matches(pattern, rule))
             && !self.ignore.iter().any(|pattern| rule_matches(pattern, rule))
+    }
+
+    /// Return whether a known default-disabled rule was explicitly selected.
+    pub fn enables_default_disabled(&self, rule: &str) -> bool {
+        is_default_disabled_rule(rule) && self.enables(rule)
     }
 
     /// Filter diagnostics according to this rule filter.
