@@ -2,8 +2,7 @@ use docstring_cst::semantic::{BlockKind, SemanticView};
 use docstring_cst::{DocstringStyle, Source, TextRange};
 
 use crate::{
-    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, HostKind, Range, SignatureParameter,
-    line_indent_before,
+    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, Range, SignatureParameter, line_indent_before,
 };
 
 use super::{RuleContext, has_other_section};
@@ -14,10 +13,6 @@ pub(crate) fn check_parameter_rules(
     semantic: &SemanticView,
     _config: AnalysisConfig,
 ) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
     let ctx = RuleContext { source, host, semantic };
 
     let mut diagnostics = Vec::new();

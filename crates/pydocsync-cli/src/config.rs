@@ -92,10 +92,10 @@ mod tests {
     fn normalizes_comma_separated_rule_lists() {
         assert_eq!(
             normalize_rule_list(Some(vec![
-                "args, raises".to_string(),
+                "args, yields".to_string(),
                 "returns-section-extra".to_string()
             ])),
-            vec!["args", "raises", "returns-section-extra"]
+            vec!["args", "yields", "returns-section-extra"]
         );
     }
 
@@ -104,14 +104,14 @@ mod tests {
         let config: PyProject = toml::from_str(
             r#"
             [tool.pydocsync]
-            ignore = ["raises"]
+            ignore = ["yields"]
             exclude = ["build/**"]
             "#,
         )
         .unwrap();
 
         let raw = config.tool.unwrap().pydocsync.unwrap();
-        assert_eq!(raw.ignore, Some(vec!["raises".to_string()]));
+        assert_eq!(raw.ignore, Some(vec!["yields".to_string()]));
         assert_eq!(raw.exclude, Some(vec!["build/**".to_string()]));
     }
 }

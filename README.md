@@ -2,7 +2,7 @@
 
 `pydocsync` is a fast Python signature-docstring synchronizer.
 
-It checks only structural drift between code and docstrings: arguments, return sections, yield sections, and raised exceptions. It is intentionally not a general docstring linter. It does not enforce prose style, summary punctuation, type annotation policy, class docstring policy, inline suppression, or baselines.
+It checks only structural drift between code and docstrings: arguments, return sections, and yield sections. It is intentionally not a general docstring linter. It does not enforce prose style, summary punctuation, type annotation policy, class docstring policy, raises sections, inline suppression, or baselines.
 
 ## Install
 
@@ -46,7 +46,7 @@ Configuration is optional. When present, `pydocsync` reads `[tool.pydocsync]` fr
 
 ```toml
 [tool.pydocsync]
-ignore = ["raises"]
+ignore = ["yields"]
 exclude = ["build/**", "tests/fixtures/**"]
 ```
 
@@ -70,14 +70,12 @@ Rule IDs are readable and stable:
 | `returns-section-extra` | safe | Docstring has a Returns section but the function returns no value |
 | `yields-section-missing` | unsafe | Generator yields values but the docstring has no Yields section |
 | `yields-section-extra` | safe | Docstring has a Yields section but the function is not a generator |
-| `raises-section-missing` | unsafe | Function raises exceptions but the docstring has no Raises section |
-| `raises-section-extra` | safe | Docstring has a Raises section but the function raises no exceptions |
-| `raises-exception-missing` | unsafe | Raised exception is missing from the Raises section |
-| `raises-exception-extra` | unsafe | Raises entry documents an exception not raised by the function |
 
-`--ignore` and `ignore` accept exact rule IDs or group prefixes. For example, `raises` ignores every `raises-*` rule, and `args-section` ignores both argument section rules.
+`--ignore` and `ignore` accept exact rule IDs or group prefixes. For example, `args-section` ignores both argument section rules, and `yields` ignores every `yields-*` rule.
 
 Missing-section rules are intentionally lenient: they fire only when the docstring already uses another structured section. A short summary-only docstring is left alone.
+
+Raises sections are intentionally ignored. Exception behavior is often part of an API contract rather than something pydocsync can infer reliably from local syntax.
 
 ## Scope
 

@@ -19,10 +19,6 @@ pub static RULES: &[RuleMetadata] = &[
     rule("returns-section-extra"),
     rule("yields-section-missing"),
     rule("yields-section-extra"),
-    rule("raises-section-missing"),
-    rule("raises-section-extra"),
-    rule("raises-exception-missing"),
-    rule("raises-exception-extra"),
 ];
 
 const fn rule(code: &'static str) -> RuleMetadata {

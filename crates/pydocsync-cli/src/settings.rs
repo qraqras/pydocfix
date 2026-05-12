@@ -94,7 +94,7 @@ mod tests {
             settings
                 .filter_diagnostics(vec![
                     diagnostic("args-param-missing"),
-                    diagnostic("raises-exception-extra")
+                    diagnostic("yields-section-extra")
                 ])
                 .len(),
             1

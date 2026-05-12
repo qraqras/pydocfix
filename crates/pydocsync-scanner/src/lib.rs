@@ -10,7 +10,7 @@ mod string;
 mod summary;
 
 pub use range::ByteRange;
-pub use summary::{ClassItem, FileSummary, FunctionItem, Item, ParameterRecord, RaiseRecord};
+pub use summary::{FileSummary, FunctionItem, ParameterRecord};
 
 /// Summarizes Python source into docstring hosts and lightweight facts.
 ///

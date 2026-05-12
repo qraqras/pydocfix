@@ -1,4 +1,4 @@
-use pydocsync_scanner::{ByteRange, Item, summarize_python};
+use pydocsync_scanner::{ByteRange, summarize_python};
 
 fn slice(source: &str, range: ByteRange) -> &str {
     &source[range.start()..range.end()]
@@ -18,27 +18,11 @@ class Example:
 "#;
 
     let summary = summarize_python(source);
-    assert_eq!(
-        summary.module_docstring.map(|range| slice(source, range)),
-        Some("\"\"\"Module docs.\"\"\"")
-    );
-    assert_eq!(summary.items.len(), 2);
+    assert_eq!(summary.items.len(), 1);
 
-    let class = match &summary.items[0] {
-        Item::Class(item) => item,
-        item => panic!("expected class, got {item:?}"),
-    };
-    assert_eq!(class.name, "Example");
-    assert_eq!(slice(source, class.docstring_range.unwrap()), "\"\"\"Class docs.\"\"\"");
-    assert_eq!(class.parent_index, None);
-
-    let function = match &summary.items[1] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
+    let function = &summary.items[0];
     assert_eq!(function.name, "method");
     assert!(function.is_method);
-    assert_eq!(function.parent_index, Some(0));
     assert_eq!(slice(source, function.params_range), "(self, value: int)");
     assert_eq!(
         function.return_annotation_range.map(|range| slice(source, range)),
@@ -70,10 +54,7 @@ fn records_signature_parameter_facts() {
 "#;
 
     let summary = summarize_python(source);
-    let function = match &summary.items[0] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
+    let function = &summary.items[0];
 
     let names: Vec<&str> = function.parameters.iter().map(|param| param.name.as_str()).collect();
     assert_eq!(names, vec!["x", "y", "*args", "flag", "**kwargs"]);
@@ -91,7 +72,7 @@ fn records_signature_parameter_facts() {
 }
 
 #[test]
-fn records_decorators_async_yield_and_raises() {
+fn records_async_yield_and_method_state() {
     let source = r#"class Service:
     @classmethod
     @decorator(arg="x")
@@ -103,20 +84,12 @@ fn records_decorators_async_yield_and_raises() {
 "#;
 
     let summary = summarize_python(source);
-    assert_eq!(summary.items.len(), 2);
-    let function = match &summary.items[1] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
+    assert_eq!(summary.items.len(), 1);
+    let function = &summary.items[0];
 
     assert_eq!(function.name, "build");
     assert!(function.is_async);
-    assert_eq!(function.decorators.len(), 2);
-    assert_eq!(slice(source, function.decorators[0]), "@classmethod");
-    assert_eq!(slice(source, function.decorators[1]), "@decorator(arg=\"x\")");
-    assert_eq!(function.raises.len(), 1);
-    assert_eq!(slice(source, function.raises[0].name_range), "ValueError");
-    assert!(!function.raises[0].from_bare_except);
+    assert!(function.is_method);
     assert!(function.has_yield);
 }
 
@@ -131,21 +104,12 @@ fn skips_nested_function_facts_from_parent() {
 
     let summary = summarize_python(source);
     assert_eq!(summary.items.len(), 2);
-    let outer = match &summary.items[0] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
-    let inner = match &summary.items[1] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
+    let outer = &summary.items[0];
+    let inner = &summary.items[1];
 
     assert_eq!(outer.name, "outer");
     assert!(outer.has_return_value);
-    assert!(outer.raises.is_empty());
     assert_eq!(inner.name, "inner");
-    assert_eq!(inner.raises.len(), 1);
-    assert_eq!(slice(source, inner.raises[0].name_range), "RuntimeError");
 }
 
 #[test]
@@ -164,46 +128,16 @@ def fourth():
 "#;
 
     let summary = summarize_python(source);
-    let values: Vec<bool> = summary
-        .items
-        .iter()
-        .map(|item| match item {
-            Item::Function(function) => function.has_return_value,
-            item => panic!("expected function, got {item:?}"),
-        })
-        .collect();
+    let values: Vec<bool> = summary.items.iter().map(|function| function.has_return_value).collect();
 
     assert_eq!(values, vec![false, false, false, true]);
-}
-
-#[test]
-fn records_bare_reraise_from_except_type() {
-    let source = r#"def parse(value):
-    try:
-        int(value)
-    except ValueError as exc:
-        raise
-"#;
-
-    let summary = summarize_python(source);
-    let function = match &summary.items[0] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
-
-    assert_eq!(function.raises.len(), 1);
-    assert_eq!(slice(source, function.raises[0].name_range), "ValueError");
-    assert!(function.raises[0].from_bare_except);
 }
 
 #[test]
 fn tolerates_unterminated_strings() {
     let source = "def broken():\n    \"\"\"unterminated\n    return 1\n";
     let summary = summarize_python(source);
-    let function = match &summary.items[0] {
-        Item::Function(item) => item,
-        item => panic!("expected function, got {item:?}"),
-    };
+    let function = &summary.items[0];
 
     assert_eq!(function.name, "broken");
     assert_eq!(function.docstring_range, None);

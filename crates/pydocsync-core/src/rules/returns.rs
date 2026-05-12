@@ -2,7 +2,7 @@ use docstring_cst::Source;
 use docstring_cst::semantic::{BlockKind, SemanticBlock, SemanticView};
 
 use crate::{
-    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, HostKind, meaningful_return_annotation,
+    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, meaningful_return_annotation,
     returns_section_stub,
 };
 
@@ -14,10 +14,6 @@ pub(crate) fn check_return_rules(
     semantic: &SemanticView,
     _config: AnalysisConfig,
 ) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
     let ctx = RuleContext { source, host, semantic };
     let mut diagnostics = Vec::new();
     rtn001(&ctx, &mut diagnostics);

@@ -4,7 +4,6 @@ use docstring_cst::semantic::{BlockKind, SemanticView};
 use crate::DocstringHost;
 
 pub(crate) mod parameters;
-pub(crate) mod raises;
 pub(crate) mod returns;
 pub(crate) mod yields;
 

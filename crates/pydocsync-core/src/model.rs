@@ -34,51 +34,21 @@ impl Range {
     }
 }
 
-/// Kind of Python item that can own a docstring.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HostKind {
-    /// Module-level docstring.
-    Module,
-    /// Class docstring.
-    Class,
-    /// Function, async function, or method docstring.
-    Function,
-}
-
 /// A docstring host found in Python source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocstringHost {
-    /// Host kind.
-    pub kind: HostKind,
     /// Host name. Modules use `None`.
     pub name: Option<String>,
     /// File-absolute range of the docstring literal, including quotes.
     pub docstring_range: Range,
-    /// Parent class item index from the scanner, when available.
-    pub parent_index: Option<usize>,
-    /// Parent class docstring range, when this host is a method inside a documented class.
-    pub parent_class_docstring_range: Option<Range>,
     /// File-absolute range of the return annotation, including the leading `->`.
     pub return_annotation_range: Option<Range>,
     /// Whether this function has at least one value-returning `return` statement.
     pub has_return_value: bool,
     /// Whether this function contains `yield` or `yield from`.
     pub has_yield: bool,
-    /// Raised exception records in source order.
-    pub raised_exceptions: Vec<RaisedException>,
     /// Function signature parameters in source order.
     pub signature_parameters: Vec<SignatureParameter>,
-}
-
-/// A raised exception occurrence found in a function body.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaisedException {
-    /// Raised exception expression text.
-    pub name: String,
-    /// File-absolute range of the exception expression.
-    pub range: Range,
-    /// Whether this record came from a bare reraise in an except handler.
-    pub from_bare_except: bool,
 }
 
 /// A function signature parameter used by parameter rules.
@@ -204,8 +174,6 @@ pub struct ParsedDocstring {
     pub parameter_count: usize,
     /// Number of documented returns entries.
     pub return_count: usize,
-    /// Number of documented raises entries.
-    pub raise_count: usize,
     /// Number of classified docstring blocks.
     pub block_count: usize,
 }

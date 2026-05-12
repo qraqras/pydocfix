@@ -4,20 +4,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use pydocsync_scanner::{ByteRange, FileSummary, Item, summarize_python};
+use pydocsync_scanner::{ByteRange, FileSummary, summarize_python};
 
 #[derive(Debug, PartialEq, Eq)]
 struct ExpectedSummary {
-    module_docstring: Option<Range>,
     items: Vec<ExpectedItem>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct ExpectedItem {
-    kind: &'static str,
     name: String,
     is_async: bool,
-    parent_index: Option<usize>,
+    is_method: bool,
     docstring_range: Option<Range>,
 }
 
@@ -160,25 +158,14 @@ fn assert_ast_match(name: &str, source: &str) {
 
 fn actual_summary(summary: FileSummary) -> ExpectedSummary {
     ExpectedSummary {
-        module_docstring: summary.module_docstring.map(Range::from),
         items: summary
             .items
             .into_iter()
-            .map(|item| match item {
-                Item::Function(function) => ExpectedItem {
-                    kind: "function",
-                    name: function.name,
-                    is_async: function.is_async,
-                    parent_index: function.parent_index,
-                    docstring_range: function.docstring_range.map(Range::from),
-                },
-                Item::Class(class) => ExpectedItem {
-                    kind: "class",
-                    name: class.name,
-                    is_async: false,
-                    parent_index: class.parent_index,
-                    docstring_range: class.docstring_range.map(Range::from),
-                },
+            .map(|function| ExpectedItem {
+                name: function.name,
+                is_async: function.is_async,
+                is_method: function.is_method,
+                docstring_range: function.docstring_range.map(Range::from),
             })
             .collect(),
     }
@@ -211,36 +198,22 @@ fn python_ast_summary(source: &str) -> Result<ExpectedSummary, String> {
 }
 
 fn parse_ast_summary(output: &str) -> Result<ExpectedSummary, String> {
-    let mut module_docstring = None;
     let mut items = Vec::new();
 
     for line in output.lines() {
         let parts = line.split('\t').collect::<Vec<_>>();
         match parts.as_slice() {
-            ["module", range] => module_docstring = parse_optional_range(range)?,
-            ["item", kind, name, is_async, parent_index, docstring_range] => items.push(ExpectedItem {
-                kind: parse_kind(kind)?,
+            ["item", name, is_async, is_method, docstring_range] => items.push(ExpectedItem {
                 name: (*name).to_string(),
                 is_async: *is_async == "1",
-                parent_index: parse_optional_usize(parent_index)?,
+                is_method: *is_method == "1",
                 docstring_range: parse_optional_range(docstring_range)?,
             }),
             _ => return Err(format!("invalid ast summary line: {line:?}")),
         }
     }
 
-    Ok(ExpectedSummary {
-        module_docstring,
-        items,
-    })
-}
-
-fn parse_kind(value: &str) -> Result<&'static str, String> {
-    match value {
-        "function" => Ok("function"),
-        "class" => Ok("class"),
-        _ => Err(format!("invalid item kind: {value}")),
-    }
+    Ok(ExpectedSummary { items })
 }
 
 fn parse_optional_range(value: &str) -> Result<Option<Range>, String> {
@@ -256,17 +229,6 @@ fn parse_optional_range(value: &str) -> Result<Option<Range>, String> {
             .parse()
             .map_err(|error| format!("invalid range end {end}: {error}"))?,
     }))
-}
-
-fn parse_optional_usize(value: &str) -> Result<Option<usize>, String> {
-    if value == "-" {
-        Ok(None)
-    } else {
-        value
-            .parse()
-            .map(Some)
-            .map_err(|error| format!("invalid usize {value}: {error}"))
-    }
 }
 
 fn fixture_paths() -> Vec<PathBuf> {
@@ -417,54 +379,42 @@ def docstring_range(body):
 
 
 tree = ast.parse(source)
-print('module\t' + range_text(docstring_range(tree.body)))
 items = []
 
 
-def walk(node, parent_class_index):
+def walk(node, inside_class):
     if isinstance(node, ast.Module):
         for child in node.body:
-            walk(child, None)
+            walk(child, False)
         return
 
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        item_index = len(items)
         items.append((
-            'function',
             node.name,
             isinstance(node, ast.AsyncFunctionDef),
-            parent_class_index,
+            inside_class,
             docstring_range(node.body),
         ))
         for child in node.body:
-            walk(child, parent_class_index)
+            walk(child, inside_class)
         return
 
     if isinstance(node, ast.ClassDef):
-        item_index = len(items)
-        items.append((
-            'class',
-            node.name,
-            False,
-            parent_class_index,
-            docstring_range(node.body),
-        ))
         for child in node.body:
-            walk(child, item_index)
+            walk(child, True)
         return
 
     for child in ast.iter_child_nodes(node):
-        walk(child, parent_class_index)
+        walk(child, inside_class)
 
 
-walk(tree, None)
-for kind, name, is_async, parent_index, docs in items:
+walk(tree, False)
+for name, is_async, is_method, docs in items:
     print('\t'.join((
         'item',
-        kind,
         name,
         '1' if is_async else '0',
-        '-' if parent_index is None else str(parent_index),
+        '1' if is_method else '0',
         range_text(docs),
     )))
 "#;

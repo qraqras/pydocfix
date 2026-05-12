@@ -2,8 +2,7 @@ use docstring_cst::Source;
 use docstring_cst::semantic::{BlockKind, SemanticBlock, SemanticView};
 
 use crate::{
-    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, HostKind, yield_type_annotation,
-    yields_section_stub,
+    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, yield_type_annotation, yields_section_stub,
 };
 
 use super::{RuleContext, has_other_section};
@@ -14,10 +13,6 @@ pub(crate) fn check_yield_rules(
     semantic: &SemanticView,
     _config: AnalysisConfig,
 ) -> Vec<Diagnostic> {
-    if host.kind != HostKind::Function {
-        return Vec::new();
-    }
-
     let ctx = RuleContext { source, host, semantic };
     let mut diagnostics = Vec::new();
     yld001(&ctx, &mut diagnostics);

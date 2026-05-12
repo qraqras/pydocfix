@@ -1,5 +1,5 @@
 use crate::string::scan_string;
-use crate::{ByteRange, ClassItem, FileSummary, FunctionItem, Item, ParameterRecord, RaiseRecord};
+use crate::{ByteRange, FileSummary, FunctionItem, ParameterRecord};
 
 type TextRange = ByteRange;
 
@@ -11,16 +11,9 @@ enum ScopeKind {
 
 #[derive(Clone, Copy, Debug)]
 struct Scope {
-    item_index: usize,
+    item_index: Option<usize>,
     header_indent: usize,
     kind: ScopeKind,
-    last_except_type: Option<TextRange>,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct Decorator {
-    indent: usize,
-    range: TextRange,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -36,8 +29,6 @@ pub(crate) struct Scanner<'a> {
     line_depths: Vec<u32>,
     summary: FileSummary,
     scopes: Vec<Scope>,
-    pending_decorators: Vec<Decorator>,
-    checked_module_docstring: bool,
 }
 
 impl<'a> Scanner<'a> {
@@ -50,8 +41,6 @@ impl<'a> Scanner<'a> {
             lines,
             summary: FileSummary::default(),
             scopes: Vec::new(),
-            pending_decorators: Vec::new(),
-            checked_module_docstring: false,
         }
     }
 
@@ -66,23 +55,12 @@ impl<'a> Scanner<'a> {
             }
 
             if self.line_depths[line_index] > 0 {
-                self.pending_decorators.clear();
                 line_index += 1;
                 continue;
             }
 
             let indent = first - line.start;
-            self.close_dedented_scopes(indent, line.start);
-
-            if !self.checked_module_docstring {
-                self.checked_module_docstring = true;
-                if indent == 0
-                    && let Some(lit) = scan_string(self.bytes, first)
-                    && lit.is_terminated
-                {
-                    self.summary.module_docstring = Some(lit.range);
-                }
-            }
+            self.close_dedented_scopes(indent);
 
             if let Some(next_line) = self.skip_multiline_string_literal(line_index) {
                 line_index = next_line;
@@ -90,10 +68,6 @@ impl<'a> Scanner<'a> {
             }
 
             if self.bytes[first] == b'@' {
-                self.pending_decorators.push(Decorator {
-                    indent,
-                    range: TextRange::new(first, line.content_end),
-                });
                 line_index += 1;
                 continue;
             }
@@ -122,11 +96,9 @@ impl<'a> Scanner<'a> {
             }
 
             self.scan_function_fact(first, line.content_end);
-            self.pending_decorators.clear();
             line_index += 1;
         }
 
-        self.close_remaining_scopes();
         self.summary
     }
 
@@ -156,35 +128,28 @@ impl<'a> Scanner<'a> {
         let colon = self.find_header_colon(params_end)?;
         let colon_line_index = self.line_index_for_offset(colon)?;
         let return_annotation_range = self.find_return_annotation(params_end, colon);
-        let next_line_start = self.next_line_start(colon_line_index);
         let docstring_range = self.find_suite_docstring(colon + 1, indent, colon_line_index);
-        let decorators = self.take_decorators(indent);
-        let parent_index = self.current_class_parent(indent);
-        let parameters = self.parse_signature_parameters(params_start, params_end, parent_index.is_some());
+        let is_method = self.is_inside_class(indent);
+        let parameters = self.parse_signature_parameters(params_start, params_end, is_method);
         let item_index = self.summary.items.len();
         let name = self.source[name_start..name_end].to_string();
-        self.summary.items.push(Item::Function(FunctionItem {
+        self.summary.items.push(FunctionItem {
             name,
             name_range: TextRange::new(name_start, name_end),
             header_range: TextRange::new(header_start, colon + 1),
             params_range: TextRange::new(params_start, params_end),
             return_annotation_range,
-            body_range: TextRange::new(next_line_start, self.source.len()),
             docstring_range,
             is_async,
-            is_method: parent_index.is_some(),
-            parent_index,
-            decorators,
-            raises: Vec::new(),
+            is_method,
             parameters,
             has_return_value: false,
             has_yield: false,
-        }));
+        });
         self.scopes.push(Scope {
-            item_index,
+            item_index: Some(item_index),
             header_indent: indent,
             kind: ScopeKind::Function,
-            last_except_type: None,
         });
         Some(line_index + 1)
     }
@@ -192,31 +157,12 @@ impl<'a> Scanner<'a> {
     fn parse_class(&mut self, header_start: usize, indent: usize, line_index: usize) -> Option<usize> {
         let mut pos = header_start + 5;
         pos = self.skip_ws(pos, self.bytes.len());
-        let name_start = pos;
         pos = self.scan_identifier(pos)?;
-        let name_end = pos;
-        let colon = self.find_header_colon(pos)?;
-        let colon_line_index = self.line_index_for_offset(colon)?;
-        let next_line_start = self.next_line_start(colon_line_index);
-        let docstring_range = self.find_suite_docstring(colon + 1, indent, colon_line_index);
-        let decorators = self.take_decorators(indent);
-        let parent_index = self.current_class_parent(indent);
-        let item_index = self.summary.items.len();
-        let name = self.source[name_start..name_end].to_string();
-        self.summary.items.push(Item::Class(ClassItem {
-            name,
-            name_range: TextRange::new(name_start, name_end),
-            header_range: TextRange::new(header_start, colon + 1),
-            body_range: TextRange::new(next_line_start, self.source.len()),
-            docstring_range,
-            parent_index,
-            decorators,
-        }));
+        self.find_header_colon(pos)?;
         self.scopes.push(Scope {
-            item_index,
+            item_index: None,
             header_indent: indent,
             kind: ScopeKind::Class,
-            last_except_type: None,
         });
         Some(line_index + 1)
     }
@@ -253,56 +199,24 @@ impl<'a> Scanner<'a> {
             return;
         };
 
-        if self.at_keyword(first, b"except") {
-            let except_type = self.parse_except_type(first + 6, line_end);
-            self.scopes[function_scope_index].last_except_type = except_type;
-            return;
-        }
-
-        if self.at_keyword(first, b"raise") {
-            let expr_start = self.skip_ws(first + 5, line_end);
-            if expr_start >= line_end || self.bytes[expr_start] == b'#' {
-                if let Some(name_range) = self.scopes[function_scope_index].last_except_type {
-                    self.push_raise(self.scopes[function_scope_index].item_index, name_range, true);
-                }
-                return;
-            }
-            if let Some(name_range) = self.parse_raise_name(expr_start, line_end) {
-                self.push_raise(self.scopes[function_scope_index].item_index, name_range, false);
-            }
-            return;
-        }
-
         if self.at_keyword(first, b"return") {
             let expr_start = self.skip_ws(first + 6, line_end);
             if expr_start < line_end
                 && self.bytes[expr_start] != b'#'
                 && !self.is_none_return_expr(expr_start, line_end)
             {
-                self.set_function_return_value(self.scopes[function_scope_index].item_index);
+                if let Some(item_index) = self.scopes[function_scope_index].item_index {
+                    self.set_function_return_value(item_index);
+                }
             }
             return;
         }
 
         if self.at_keyword(first, b"yield") {
-            self.set_function_yield(self.scopes[function_scope_index].item_index);
-        }
-    }
-
-    fn parse_except_type(&self, start: usize, line_end: usize) -> Option<TextRange> {
-        let start = self.skip_ws(start, line_end);
-        if start >= line_end || self.bytes[start] == b':' || self.bytes[start] == b'#' {
-            return None;
-        }
-        let mut end = start;
-        while end < line_end {
-            if self.bytes[end] == b':' || self.bytes[end] == b'#' || self.at_keyword(end, b"as") {
-                break;
+            if let Some(item_index) = self.scopes[function_scope_index].item_index {
+                self.set_function_yield(item_index);
             }
-            end += 1;
         }
-        end = self.trim_end_ws(start, end);
-        (end > start).then(|| TextRange::new(start, end))
     }
 
     fn is_none_return_expr(&self, start: usize, line_end: usize) -> bool {
@@ -315,17 +229,6 @@ impl<'a> Scanner<'a> {
         }
         let rest = self.skip_ws(after_none, line_end);
         rest >= line_end || self.bytes[rest] == b'#'
-    }
-
-    fn parse_raise_name(&self, start: usize, line_end: usize) -> Option<TextRange> {
-        let mut pos = start;
-        pos = self.scan_identifier(pos)?;
-        while self.bytes.get(pos) == Some(&b'.') {
-            let next = self.scan_identifier(pos + 1)?;
-            pos = next;
-        }
-        let end = pos.min(line_end);
-        (end > start).then(|| TextRange::new(start, end))
     }
 
     fn find_return_annotation(&self, params_end: usize, colon: usize) -> Option<TextRange> {
@@ -528,17 +431,9 @@ impl<'a> Scanner<'a> {
         None
     }
 
-    fn close_dedented_scopes(&mut self, indent: usize, end: usize) {
+    fn close_dedented_scopes(&mut self, indent: usize) {
         while self.scopes.last().is_some_and(|scope| indent <= scope.header_indent) {
-            if let Some(scope) = self.scopes.pop() {
-                self.set_body_end(scope.item_index, end);
-            }
-        }
-    }
-
-    fn close_remaining_scopes(&mut self) {
-        while let Some(scope) = self.scopes.pop() {
-            self.set_body_end(scope.item_index, self.source.len());
+            self.scopes.pop();
         }
     }
 
@@ -564,12 +459,11 @@ impl<'a> Scanner<'a> {
         None
     }
 
-    fn current_class_parent(&self, indent: usize) -> Option<usize> {
+    fn is_inside_class(&self, indent: usize) -> bool {
         self.scopes
             .iter()
             .rev()
-            .find(|scope| scope.kind == ScopeKind::Class && indent > scope.header_indent)
-            .map(|scope| scope.item_index)
+            .any(|scope| scope.kind == ScopeKind::Class && indent > scope.header_indent)
     }
 
     fn current_function_scope_index(&self) -> Option<usize> {
@@ -581,45 +475,12 @@ impl<'a> Scanner<'a> {
             .map(|(index, _)| index)
     }
 
-    fn set_body_end(&mut self, item_index: usize, end: usize) {
-        match &mut self.summary.items[item_index] {
-            Item::Function(item) => item.body_range = TextRange::new(item.body_range.start(), end),
-            Item::Class(item) => item.body_range = TextRange::new(item.body_range.start(), end),
-        }
-    }
-
-    fn push_raise(&mut self, item_index: usize, name_range: TextRange, from_bare_except: bool) {
-        if let Item::Function(item) = &mut self.summary.items[item_index] {
-            item.raises.push(RaiseRecord {
-                name_range,
-                from_bare_except,
-            });
-        }
-    }
-
     fn set_function_return_value(&mut self, item_index: usize) {
-        if let Item::Function(item) = &mut self.summary.items[item_index] {
-            item.has_return_value = true;
-        }
+        self.summary.items[item_index].has_return_value = true;
     }
 
     fn set_function_yield(&mut self, item_index: usize) {
-        if let Item::Function(item) = &mut self.summary.items[item_index] {
-            item.has_yield = true;
-        }
-    }
-
-    fn take_decorators(&mut self, indent: usize) -> Vec<TextRange> {
-        let mut taken = Vec::new();
-        self.pending_decorators.retain(|decorator| {
-            if decorator.indent == indent {
-                taken.push(decorator.range);
-                false
-            } else {
-                true
-            }
-        });
-        taken
+        self.summary.items[item_index].has_yield = true;
     }
 
     fn first_non_ws(&self, start: usize, end: usize) -> usize {
@@ -689,12 +550,6 @@ impl<'a> Scanner<'a> {
             .iter()
             .position(|byte| *byte == b'\n' || *byte == b'\r')
             .map_or(self.bytes.len(), |offset| pos + offset)
-    }
-
-    fn next_line_start(&self, line_index: usize) -> usize {
-        self.lines
-            .get(line_index + 1)
-            .map_or(self.source.len(), |line| line.start)
     }
 
     fn line_index_for_offset(&self, offset: usize) -> Option<usize> {
