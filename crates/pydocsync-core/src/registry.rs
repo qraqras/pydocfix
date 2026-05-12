@@ -1,28 +1,28 @@
 /// Static metadata for a pydocsync rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleMetadata {
-    /// Rule identifier, such as `arg-missing`.
+    /// Rule identifier, such as `args-param-missing`.
     pub code: &'static str,
 }
 
 /// Built-in rules known to the Rust engine and CLI.
 pub static RULES: &[RuleMetadata] = &[
-    rule("arg-section-missing"),
-    rule("arg-section-extra"),
-    rule("arg-receiver"),
-    rule("arg-missing"),
-    rule("arg-extra"),
-    rule("arg-order"),
-    rule("arg-duplicate"),
-    rule("arg-vararg-marker"),
-    rule("return-missing"),
-    rule("return-extra"),
-    rule("yield-missing"),
-    rule("yield-extra"),
+    rule("args-section-missing"),
+    rule("args-section-extra"),
+    rule("args-receiver-documented"),
+    rule("args-param-missing"),
+    rule("args-param-extra"),
+    rule("args-param-out-of-order"),
+    rule("args-param-duplicate"),
+    rule("args-vararg-marker-missing"),
+    rule("returns-section-missing"),
+    rule("returns-section-extra"),
+    rule("yields-section-missing"),
+    rule("yields-section-extra"),
     rule("raises-section-missing"),
     rule("raises-section-extra"),
-    rule("raises-missing"),
-    rule("raises-extra"),
+    rule("raises-exception-missing"),
+    rule("raises-exception-extra"),
 ];
 
 const fn rule(code: &'static str) -> RuleMetadata {

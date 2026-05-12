@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn renders_header_with_line_and_column() {
         let diagnostic = Diagnostic {
-            rule: "arg-missing",
+            rule: "args-param-missing",
             message: "Parameter 'value' missing from docstring.".to_string(),
             range: Range { start: 16, end: 23 },
             fix: None,
@@ -246,13 +246,13 @@ mod tests {
             &diagnostic,
         );
 
-        assert!(rendered.contains("example.py:2:8: arg-missing [] Parameter 'value' missing from docstring."));
+        assert!(rendered.contains("example.py:2:8: args-param-missing [] Parameter 'value' missing from docstring."));
     }
 
     #[test]
     fn renders_full_with_context() {
         let diagnostic = Diagnostic {
-            rule: "arg-missing",
+            rule: "args-param-missing",
             message: "Parameter 'value' missing from docstring.".to_string(),
             range: Range { start: 16, end: 23 },
             fix: None,
@@ -264,10 +264,10 @@ mod tests {
             &diagnostic,
         );
 
-        assert!(rendered.contains("example.py:2:8: arg-missing [] Parameter 'value' missing from docstring."));
+        assert!(rendered.contains("example.py:2:8: args-param-missing [] Parameter 'value' missing from docstring."));
         assert!(rendered.contains("2 |     \"\"\"Summary\"\"\""));
         assert!(rendered.contains("|        ^^^^^^^"));
-        assert!(!rendered.contains("|        ^^^^^^^ arg-missing"));
+        assert!(!rendered.contains("|        ^^^^^^^ args-param-missing"));
     }
 
     #[test]
@@ -275,7 +275,7 @@ mod tests {
         let source = "def f():\n    \"\"\"説明Summary\"\"\"\n";
         let start = source.find("Summary").unwrap();
         let diagnostic = Diagnostic {
-            rule: "arg-missing",
+            rule: "args-param-missing",
             message: "Parameter 'value' missing from docstring.".to_string(),
             range: Range {
                 start,
@@ -287,6 +287,6 @@ mod tests {
 
         let rendered = render_diagnostic(Path::new("example.py"), source, &diagnostic);
 
-        assert!(rendered.contains("example.py:2:10: arg-missing [] Parameter 'value' missing from docstring."));
+        assert!(rendered.contains("example.py:2:10: args-param-missing [] Parameter 'value' missing from docstring."));
     }
 }

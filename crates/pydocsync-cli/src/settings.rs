@@ -78,21 +78,24 @@ mod tests {
             diff: false,
             unsafe_fixes: false,
             jobs: None,
-            ignore: vec!["return".to_string()],
+            ignore: vec!["returns".to_string()],
             exclude: Vec::new(),
             paths: vec![PathBuf::from("src")],
         };
         let project_config = ProjectConfig {
-            ignore: vec!["arg".to_string()],
+            ignore: vec!["args".to_string()],
             ..ProjectConfig::default()
         };
 
         let settings = ResolvedSettings::resolve(cli_args, project_config);
 
-        assert_eq!(settings.rule_filter.ignore, vec!["arg", "return"]);
+        assert_eq!(settings.rule_filter.ignore, vec!["args", "returns"]);
         assert_eq!(
             settings
-                .filter_diagnostics(vec![diagnostic("arg-missing"), diagnostic("raises-extra")])
+                .filter_diagnostics(vec![
+                    diagnostic("args-param-missing"),
+                    diagnostic("raises-exception-extra")
+                ])
                 .len(),
             1
         );

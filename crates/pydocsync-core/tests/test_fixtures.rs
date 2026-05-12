@@ -20,13 +20,63 @@ fn fixture_rule_sets_match() {
 fn ignore_filter_supports_rule_groups() {
     let source = fixture_source("arguments");
     let diagnostics = analyze_source(source).diagnostics;
-    let rules = RuleFilter::new(vec!["arg-section".to_string()])
+    let rules = RuleFilter::new(vec!["args-section".to_string()])
         .filter_diagnostics(diagnostics)
         .into_iter()
         .map(|diagnostic| diagnostic.rule.to_string())
         .collect::<Vec<_>>();
 
-    assert_eq!(rules, vec!["arg-extra", "arg-receiver", "arg-vararg-marker"]);
+    assert_eq!(
+        rules,
+        vec![
+            "args-param-extra",
+            "args-receiver-documented",
+            "args-vararg-marker-missing"
+        ]
+    );
+}
+
+#[test]
+fn numpy_grouped_parameters_match_signature_names() {
+    let source = r#"def f(x, y, z):
+    """Do work.
+
+    Parameters
+    ----------
+    x, y : int
+        Shared description.
+    z : str
+        Separate description.
+    """
+    return x + y
+"#;
+
+    let report = analyze_source(source);
+
+    assert!(report.diagnostics.is_empty());
+    assert_eq!(report.docstrings[0].parameter_count, 3);
+}
+
+#[test]
+fn numpy_grouped_parameters_still_report_missing_names() {
+    let source = r#"def f(x, y, z):
+    """Do work.
+
+    Parameters
+    ----------
+    x, y : int
+        Shared description.
+    """
+    return x + y
+"#;
+
+    let rules = analyze_source(source)
+        .diagnostics
+        .into_iter()
+        .map(|diagnostic| diagnostic.rule.to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(rules, vec!["args-param-missing"]);
 }
 
 fn fixture_source(name: &str) -> &'static str {

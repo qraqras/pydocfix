@@ -6,7 +6,7 @@ use crate::{
     raises_entry_append_text, raises_section_stub, unique_raised_exception_names,
 };
 
-use super::RuleContext;
+use super::{RuleContext, has_other_section};
 
 pub(crate) fn check_raise_rules(
     source: &Source,
@@ -35,6 +35,7 @@ fn ris001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         || ctx.host.raised_exceptions.is_empty()
         || raises_block.is_some()
         || !ctx.semantic.raises().is_empty()
+        || !has_other_section(ctx.semantic, BlockKind::Raises)
     {
         return;
     }
@@ -105,7 +106,7 @@ fn ris004(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
                     .any(|documented| *documented == *raised_exception)
             })
             .map(|raised_exception| Diagnostic {
-                rule: "raises-missing",
+                rule: "raises-exception-missing",
                 message: format!("Raised exception '{raised_exception}' not documented in Raises section."),
                 range: block.name_range.into(),
                 fix: Some(Fix {
@@ -141,7 +142,7 @@ fn ris005_entry(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>, raise_
         return;
     }
     diagnostics.push(Diagnostic {
-        rule: "raises-extra",
+        rule: "raises-exception-extra",
         message: format!("Raises entry '{documented_name}' not raised in function body."),
         range: exception_range.into(),
         fix: Some(Fix {

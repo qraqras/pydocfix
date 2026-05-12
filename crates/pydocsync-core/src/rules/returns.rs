@@ -1,12 +1,12 @@
 use docstring_cst::Source;
-use docstring_cst::semantic::{SemanticBlock, SemanticView};
+use docstring_cst::semantic::{BlockKind, SemanticBlock, SemanticView};
 
 use crate::{
     AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, HostKind, meaningful_return_annotation,
     returns_section_stub,
 };
 
-use super::RuleContext;
+use super::{RuleContext, has_other_section};
 
 pub(crate) fn check_return_rules(
     source: &Source,
@@ -30,6 +30,9 @@ fn rtn001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
     if ctx.host.has_yield || returns_block(ctx.semantic).is_some() || !ctx.semantic.returns().is_empty() {
         return;
     }
+    if !has_other_section(ctx.semantic, BlockKind::Returns) {
+        return;
+    }
     let Some(return_annotation) = meaningful_return_annotation(ctx.source, ctx.host) else {
         return;
     };
@@ -39,7 +42,7 @@ fn rtn001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         .map(|quote| quote.entry_range.start())
         .unwrap_or(ctx.host.docstring_range.end);
     diagnostics.push(Diagnostic {
-        rule: "return-missing",
+        rule: "returns-section-missing",
         message: "Missing Returns section in docstring.".to_string(),
         range: ctx
             .semantic
@@ -65,7 +68,7 @@ fn rtn002(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         return;
     };
     diagnostics.push(Diagnostic {
-        rule: "return-extra",
+        rule: "returns-section-extra",
         message: "Unnecessary Returns section in docstring.".to_string(),
         range: block.name_range.into(),
         fix: Some(Fix {
@@ -80,8 +83,5 @@ fn rtn002(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
 }
 
 fn returns_block(semantic: &SemanticView) -> Option<&SemanticBlock> {
-    semantic
-        .blocks()
-        .iter()
-        .find(|block| block.kind == docstring_cst::semantic::BlockKind::Returns)
+    semantic.blocks().iter().find(|block| block.kind == BlockKind::Returns)
 }

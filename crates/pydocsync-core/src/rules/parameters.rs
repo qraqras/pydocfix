@@ -6,7 +6,7 @@ use crate::{
     line_indent_before,
 };
 
-use super::RuleContext;
+use super::{RuleContext, has_other_section};
 
 pub(crate) fn check_parameter_rules(
     source: &Source,
@@ -39,6 +39,7 @@ fn prm001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         && !signature_params.is_empty()
         && parameter_block(ctx.semantic).is_none()
         && ctx.semantic.parameters().is_empty()
+        && has_other_section(ctx.semantic, BlockKind::Parameters)
     {
         let insert_offset = ctx
             .semantic
@@ -46,7 +47,7 @@ fn prm001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
             .map(|quote| quote.entry_range.start())
             .unwrap_or(ctx.host.docstring_range.end);
         diagnostics.push(Diagnostic {
-            rule: "arg-section-missing",
+            rule: "args-section-missing",
             message: "Missing Args/Parameters section in docstring.".to_string(),
             range: ctx
                 .semantic
@@ -73,7 +74,7 @@ fn prm002(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         return;
     };
     diagnostics.push(Diagnostic {
-        rule: "arg-section-extra",
+        rule: "args-section-extra",
         message: "Function has no parameters but docstring has Args/Parameters section.".to_string(),
         range: block.name_range.into(),
         fix: Some(Fix {
@@ -93,7 +94,7 @@ fn prm003(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
             .into_iter()
             .filter(|documented_param| matches!(documented_param.name.as_str(), "self" | "cls"))
             .map(|documented_param| Diagnostic {
-                rule: "arg-receiver",
+                rule: "args-receiver-documented",
                 message: format!("Docstring should not document '{}'.", documented_param.name),
                 range: documented_param.name_range.into(),
                 fix: Some(Fix {
@@ -114,6 +115,9 @@ fn prm004(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         && !documented.is_empty()
     {
         for signature_param in documentable_signature_parameters(ctx.host) {
+            if signature_param.is_kwarg {
+                continue;
+            }
             if documented
                 .iter()
                 .any(|documented_param| bare_parameter_name(&documented_param.name) == signature_param.bare_name)
@@ -121,7 +125,7 @@ fn prm004(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
                 continue;
             }
             diagnostics.push(Diagnostic {
-                rule: "arg-missing",
+                rule: "args-param-missing",
                 message: format!("Missing parameter '{}' in docstring.", signature_param.name),
                 range: block.name_range.into(),
                 fix: Some(Fix {
@@ -143,12 +147,16 @@ fn prm004(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
 }
 
 fn prm005(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
+    if has_signature_kwargs(ctx.host) {
+        return;
+    }
+
     let signature_names = all_signature_bare_names(ctx.host);
     diagnostics.extend(documented_parameters(ctx.source, ctx.semantic).into_iter().filter_map(
         move |documented_param| {
             let bare_name = bare_parameter_name(&documented_param.name);
             (!signature_names.iter().any(|name| *name == bare_name)).then(|| Diagnostic {
-                rule: "arg-extra",
+                rule: "args-param-extra",
                 message: format!("Parameter '{}' not in function signature.", documented_param.name),
                 range: documented_param.name_range.into(),
                 fix: Some(Fix {
@@ -197,7 +205,7 @@ fn prm006(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
             continue;
         }
         diagnostics.push(Diagnostic {
-            rule: "arg-order",
+            rule: "args-param-out-of-order",
             message: format!(
                 "Parameter '{doc_name}' is in the wrong order (expected '{expected_name}' at this position)."
             ),
@@ -214,7 +222,7 @@ fn prm007(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
     for documented_param in &documented {
         if seen.contains(&documented_param.name.as_str()) {
             diagnostics.push(Diagnostic {
-                rule: "arg-duplicate",
+                rule: "args-param-duplicate",
                 message: format!("Parameter '{}' is documented more than once.", documented_param.name),
                 range: documented_param.name_range.into(),
                 fix: Some(Fix {
@@ -247,7 +255,7 @@ fn prm009(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
             continue;
         };
         diagnostics.push(Diagnostic {
-            rule: "arg-vararg-marker",
+            rule: "args-vararg-marker-missing",
             message: format!(
                 "Docstring parameter '{}' should be '{}'.",
                 documented_param.name, signature_param.name
@@ -283,13 +291,14 @@ fn documented_parameters(source: &Source, semantic: &SemanticView) -> Vec<Docume
     semantic
         .parameters()
         .iter()
-        .filter_map(|param| {
-            let name_range = param.name_range?;
-            let name = source.slice(name_range)?.trim().to_string();
-            Some(DocumentedParameter {
-                name,
-                entry_range: param.entry_range,
-                name_range,
+        .flat_map(|param| {
+            param.name_ranges.iter().filter_map(|&name_range| {
+                let name = source.slice(name_range)?.trim().to_string();
+                Some(DocumentedParameter {
+                    name,
+                    entry_range: param.entry_range,
+                    name_range,
+                })
             })
         })
         .collect()
@@ -300,6 +309,10 @@ pub(crate) fn documentable_signature_parameters(host: &DocstringHost) -> Vec<&Si
         .iter()
         .filter(|param| !param.is_implicit_receiver)
         .collect()
+}
+
+fn has_signature_kwargs(host: &DocstringHost) -> bool {
+    host.signature_parameters.iter().any(|param| param.is_kwarg)
 }
 
 fn all_signature_bare_names(host: &DocstringHost) -> Vec<&str> {

@@ -3,6 +3,15 @@ def missing_args_section(value):
     return value
 
 
+def missing_args_section_in_structured_docstring(value):
+    """Build a value.
+
+    Returns:
+        int: The value.
+    """
+    return value
+
+
 def extra_args_section():
     """Build a value.
 
@@ -30,3 +39,13 @@ def vararg_marker(*items):
         items: Values.
     """
     return items
+
+
+def kwargs_expanded(**kwargs):
+    """Build from keyword options.
+
+    Args:
+        timeout: Timeout in seconds.
+        retries: Number of retry attempts.
+    """
+    return kwargs

@@ -58,24 +58,26 @@ Rule IDs are readable and stable:
 
 | Rule | Fix | Description |
 | --- | --- | --- |
-| `arg-section-missing` | unsafe | Signature has documentable arguments but the docstring has no Args/Parameters section |
-| `arg-section-extra` | safe | Docstring has an Args/Parameters section but the signature has no documentable arguments |
-| `arg-receiver` | safe | Docstring documents `self` or `cls` |
-| `arg-missing` | unsafe | Signature argument is missing from the docstring |
-| `arg-extra` | unsafe | Docstring argument is not in the signature |
-| `arg-order` | unsafe | Docstring argument order differs from the signature |
-| `arg-duplicate` | unsafe | Docstring documents the same argument more than once |
-| `arg-vararg-marker` | safe | Docstring omits `*` or `**` for `*args` or `**kwargs` |
-| `return-missing` | unsafe | Function returns a value but the docstring has no Returns section |
-| `return-extra` | safe | Docstring has a Returns section but the function returns no value |
-| `yield-missing` | unsafe | Generator yields values but the docstring has no Yields section |
-| `yield-extra` | safe | Docstring has a Yields section but the function is not a generator |
+| `args-section-missing` | unsafe | Signature has documentable arguments but the docstring has no Args/Parameters section |
+| `args-section-extra` | safe | Docstring has an Args/Parameters section but the signature has no documentable arguments |
+| `args-receiver-documented` | safe | Docstring documents `self` or `cls` |
+| `args-param-missing` | unsafe | Signature argument is missing from the docstring |
+| `args-param-extra` | unsafe | Docstring argument is not in the signature |
+| `args-param-out-of-order` | unsafe | Docstring argument order differs from the signature |
+| `args-param-duplicate` | unsafe | Docstring documents the same argument more than once |
+| `args-vararg-marker-missing` | safe | Docstring omits `*` or `**` for `*args` or `**kwargs` |
+| `returns-section-missing` | unsafe | Function returns a value but the docstring has no Returns section |
+| `returns-section-extra` | safe | Docstring has a Returns section but the function returns no value |
+| `yields-section-missing` | unsafe | Generator yields values but the docstring has no Yields section |
+| `yields-section-extra` | safe | Docstring has a Yields section but the function is not a generator |
 | `raises-section-missing` | unsafe | Function raises exceptions but the docstring has no Raises section |
 | `raises-section-extra` | safe | Docstring has a Raises section but the function raises no exceptions |
-| `raises-missing` | unsafe | Raised exception is missing from the Raises section |
-| `raises-extra` | unsafe | Raises entry documents an exception not raised by the function |
+| `raises-exception-missing` | unsafe | Raised exception is missing from the Raises section |
+| `raises-exception-extra` | unsafe | Raises entry documents an exception not raised by the function |
 
-`--ignore` and `ignore` accept exact rule IDs or group prefixes. For example, `raises` ignores every `raises-*` rule, and `arg-section` ignores both argument section rules.
+`--ignore` and `ignore` accept exact rule IDs or group prefixes. For example, `raises` ignores every `raises-*` rule, and `args-section` ignores both argument section rules.
+
+Missing-section rules are intentionally lenient: they fire only when the docstring already uses another structured section. A short summary-only docstring is left alone.
 
 ## Scope
 

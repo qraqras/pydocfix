@@ -114,7 +114,7 @@ mod tests {
             "--fix".to_string(),
             "--unsafe-fixes".to_string(),
             "--ignore".to_string(),
-            "raises,arg-order".to_string(),
+            "raises,args-param-out-of-order".to_string(),
             "--jobs=4".to_string(),
             "src".to_string(),
         ])
@@ -123,7 +123,7 @@ mod tests {
 
         assert!(args.fix);
         assert!(args.unsafe_fixes);
-        assert_eq!(args.ignore, vec!["raises", "arg-order"]);
+        assert_eq!(args.ignore, vec!["raises", "args-param-out-of-order"]);
         assert_eq!(args.jobs, Some(4));
         assert_eq!(args.paths, vec![PathBuf::from("src")]);
     }

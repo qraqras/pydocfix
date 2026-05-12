@@ -91,8 +91,11 @@ mod tests {
     #[test]
     fn normalizes_comma_separated_rule_lists() {
         assert_eq!(
-            normalize_rule_list(Some(vec!["arg, raises".to_string(), "return-extra".to_string()])),
-            vec!["arg", "raises", "return-extra"]
+            normalize_rule_list(Some(vec![
+                "args, raises".to_string(),
+                "returns-section-extra".to_string()
+            ])),
+            vec!["args", "raises", "returns-section-extra"]
         );
     }
 

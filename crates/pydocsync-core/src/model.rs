@@ -132,7 +132,8 @@ impl RuleFilter {
 }
 
 fn rule_matches(pattern: &str, rule: &str) -> bool {
-    rule == pattern || rule.starts_with(pattern.strip_suffix('-').unwrap_or(pattern))
+    let pattern = pattern.strip_suffix('-').unwrap_or(pattern);
+    rule == pattern || rule.strip_prefix(pattern).is_some_and(|suffix| suffix.starts_with('-'))
 }
 
 /// Whether a fix can be applied automatically without unsafe behavior changes.

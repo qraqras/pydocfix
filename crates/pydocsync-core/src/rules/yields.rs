@@ -1,12 +1,12 @@
 use docstring_cst::Source;
-use docstring_cst::semantic::{SemanticBlock, SemanticView};
+use docstring_cst::semantic::{BlockKind, SemanticBlock, SemanticView};
 
 use crate::{
     AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, HostKind, yield_type_annotation,
     yields_section_stub,
 };
 
-use super::RuleContext;
+use super::{RuleContext, has_other_section};
 
 pub(crate) fn check_yield_rules(
     source: &Source,
@@ -30,13 +30,16 @@ fn yld001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
     if !ctx.host.has_yield || yields_block(ctx.semantic).is_some() || !ctx.semantic.yields().is_empty() {
         return;
     }
+    if !has_other_section(ctx.semantic, BlockKind::Yields) {
+        return;
+    }
     let insert_offset = ctx
         .semantic
         .close_quote()
         .map(|quote| quote.entry_range.start())
         .unwrap_or(ctx.host.docstring_range.end);
     diagnostics.push(Diagnostic {
-        rule: "yield-missing",
+        rule: "yields-section-missing",
         message: "Missing Yields section in docstring.".to_string(),
         range: ctx
             .semantic
@@ -67,7 +70,7 @@ fn yld002(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         return;
     };
     diagnostics.push(Diagnostic {
-        rule: "yield-extra",
+        rule: "yields-section-extra",
         message: "Unnecessary Yields section in docstring.".to_string(),
         range: block.name_range.into(),
         fix: Some(Fix {
@@ -82,8 +85,5 @@ fn yld002(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
 }
 
 fn yields_block(semantic: &SemanticView) -> Option<&SemanticBlock> {
-    semantic
-        .blocks()
-        .iter()
-        .find(|block| block.kind == docstring_cst::semantic::BlockKind::Yields)
+    semantic.blocks().iter().find(|block| block.kind == BlockKind::Yields)
 }

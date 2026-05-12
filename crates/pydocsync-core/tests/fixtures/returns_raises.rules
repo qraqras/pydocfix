@@ -1,5 +1,5 @@
-return-missing
-return-extra
+returns-section-missing
+returns-section-extra
 raises-section-missing
 raises-section-extra
-raises-extra
+raises-exception-extra

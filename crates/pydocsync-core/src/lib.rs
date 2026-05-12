@@ -181,7 +181,11 @@ pub(crate) fn analyze_source_with_filter(source: &str, config: AnalysisConfig, r
                 host: host.clone(),
                 style: format!("{:?}", semantic.style()),
                 parsed: true,
-                parameter_count: semantic.parameters().len(),
+                parameter_count: semantic
+                    .parameters()
+                    .iter()
+                    .map(|parameter| parameter.name_ranges.len())
+                    .sum(),
                 return_count: semantic.returns().len(),
                 raise_count: semantic.raises().len(),
                 block_count: semantic.blocks().len(),
