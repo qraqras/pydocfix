@@ -94,6 +94,55 @@ fn extra_parameter_reports_for_non_variadic_signature() {
 }
 
 #[test]
+fn extra_parameter_fix_deletes_leading_indent() {
+    let source = r#"def f(value):
+    """Do work.
+
+    Args:
+        value: Input value.
+        timeout: Extra option.
+    """
+    return value
+"#;
+
+    let report = analyze_source(source);
+    let diagnostic = report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.rule == "args-param-extra")
+        .expect("extra parameter diagnostic");
+    let edit = only_edit(diagnostic);
+
+    assert_eq!(edit.replacement, "");
+    assert_eq!(slice(source, edit.range), "        timeout: Extra option.\n");
+}
+
+#[test]
+fn receiver_fix_deletes_leading_indent() {
+    let source = r#"class C:
+    def f(self, value):
+        """Do work.
+
+        Args:
+            self: The instance.
+            value: Input value.
+        """
+        return value
+"#;
+
+    let report = analyze_source(source);
+    let diagnostic = report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.rule == "args-receiver-documented")
+        .expect("receiver diagnostic");
+    let edit = only_edit(diagnostic);
+
+    assert_eq!(edit.replacement, "");
+    assert_eq!(slice(source, edit.range), "            self: The instance.\n");
+}
+
+#[test]
 fn extra_parameter_is_skipped_for_variadic_signature() {
     let source = r#"def f(value, **kwargs):
     """Do work.
@@ -378,4 +427,14 @@ fn fixture_rules(name: &str) -> Vec<String> {
         .collect::<Vec<_>>();
     rules.sort();
     rules
+}
+
+fn only_edit(diagnostic: &pydocsync_core::Diagnostic) -> &pydocsync_core::Edit {
+    let fix = diagnostic.fix.as_ref().expect("diagnostic has fix");
+    assert_eq!(fix.edits.len(), 1);
+    &fix.edits[0]
+}
+
+fn slice(source: &str, range: pydocsync_core::Range) -> &str {
+    &source[range.start..range.end]
 }

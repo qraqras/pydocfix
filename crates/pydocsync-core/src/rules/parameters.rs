@@ -35,7 +35,7 @@ fn prm003(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
                 range: documented_param.name_range.into(),
                 fix: Some(Fix {
                     edits: vec![Edit {
-                        range: documented_param.entry_range.into(),
+                        range: documented_param.delete_range().into(),
                         replacement: String::new(),
                     }],
                     applicability: Applicability::Safe,
@@ -106,7 +106,7 @@ fn prm005(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
                 range: documented_param.name_range.into(),
                 fix: Some(Fix {
                     edits: vec![Edit {
-                        range: documented_param.entry_range.into(),
+                        range: documented_param.delete_range().into(),
                         replacement: String::new(),
                     }],
                     applicability: Applicability::Unsafe,
@@ -128,7 +128,7 @@ fn prm007(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
                 range: documented_param.name_range.into(),
                 fix: Some(Fix {
                     edits: vec![Edit {
-                        range: documented_param.entry_range.into(),
+                        range: documented_param.delete_range().into(),
                         replacement: String::new(),
                     }],
                     applicability: Applicability::Unsafe,
@@ -152,7 +152,18 @@ fn parameter_block(semantic: &SemanticView) -> Option<&docstring_cst::semantic::
 struct DocumentedParameter {
     name: String,
     entry_range: TextRange,
+    leading_whitespace_range: Option<TextRange>,
     name_range: TextRange,
+}
+
+impl DocumentedParameter {
+    fn delete_range(&self) -> TextRange {
+        TextRange::new(
+            self.leading_whitespace_range
+                .map_or(self.entry_range.start(), |range| range.start()),
+            self.entry_range.end(),
+        )
+    }
 }
 
 fn documented_parameters(source: &Source, semantic: &SemanticView) -> Vec<DocumentedParameter> {
@@ -165,6 +176,7 @@ fn documented_parameters(source: &Source, semantic: &SemanticView) -> Vec<Docume
                 Some(DocumentedParameter {
                     name,
                     entry_range: param.entry_range,
+                    leading_whitespace_range: param.leading_whitespace_range,
                     name_range,
                 })
             })
