@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use docstring_cst::{DocstringStyle, Source};
+use docstring_cst::Source;
 use pydocsync_scanner::{ParameterRecord, summarize_python};
 
 mod linter;
@@ -61,12 +61,6 @@ pub(crate) fn analyze_source_with_filter(source: &str, config: AnalysisConfig, r
         if let Some(cst) = cst {
             let semantic = cst.semantic();
             diagnostics.extend(rules::returns::check_return_rules(
-                &source_buffer,
-                &host,
-                &semantic,
-                config,
-            ));
-            diagnostics.extend(rules::yields::check_yield_rules(
                 &source_buffer,
                 &host,
                 &semantic,
@@ -128,71 +122,6 @@ fn signature_parameter_from_record(source: &str, record: &ParameterRecord) -> Si
         is_kwarg: record.is_kwarg,
         is_implicit_receiver: record.is_implicit_receiver,
     }
-}
-
-pub(crate) fn return_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
-    let range = host.return_annotation_range?;
-    let text = source.slice(range.into_text_range())?.trim();
-    let annotation = text.strip_prefix("->")?.trim();
-    (!annotation.is_empty()).then_some(annotation)
-}
-
-pub(crate) fn meaningful_return_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
-    let annotation = return_annotation(source, host)?;
-    (!annotation.is_empty() && annotation != "None").then_some(annotation)
-}
-
-pub(crate) fn returns_section_stub(
-    source: &Source,
-    host: &DocstringHost,
-    style: DocstringStyle,
-    return_annotation: &str,
-) -> String {
-    let indent = line_indent_before(source.source(), host.docstring_range.start);
-    match style {
-        DocstringStyle::Numpy => {
-            format!("\n\n{indent}Returns\n{indent}-------\n{indent}{return_annotation}\n{indent}    TODO.\n{indent}")
-        }
-        _ => format!("\n\n{indent}Returns:\n{indent}    {return_annotation}: TODO.\n{indent}"),
-    }
-}
-
-pub(crate) fn yields_section_stub(
-    source: &Source,
-    host: &DocstringHost,
-    style: DocstringStyle,
-    yield_type: Option<&str>,
-) -> String {
-    let indent = line_indent_before(source.source(), host.docstring_range.start);
-    let yield_type = yield_type.unwrap_or("value");
-    match style {
-        DocstringStyle::Numpy => {
-            format!("\n\n{indent}Yields\n{indent}------\n{indent}{yield_type}\n{indent}    TODO.\n{indent}")
-        }
-        _ => format!("\n\n{indent}Yields:\n{indent}    {yield_type}: TODO.\n{indent}"),
-    }
-}
-
-pub(crate) fn yield_type_annotation<'a>(source: &'a Source, host: &DocstringHost) -> Option<&'a str> {
-    let range = host.return_annotation_range?;
-    let text = source.slice(range.into_text_range())?.trim();
-    let annotation = text.strip_prefix("->")?.trim();
-    extract_yield_type(annotation)
-}
-
-fn extract_yield_type(annotation: &str) -> Option<&str> {
-    let open = annotation.find('[')?;
-    let close = annotation.rfind(']')?;
-    let base = annotation[..open].rsplit('.').next()?.trim();
-    if !matches!(
-        base,
-        "Generator" | "Iterator" | "Iterable" | "AsyncGenerator" | "AsyncIterator" | "AsyncIterable"
-    ) {
-        return None;
-    }
-    let inner = &annotation[open + 1..close];
-    let first = inner.split(',').next()?.trim();
-    (!first.is_empty()).then_some(first)
 }
 
 pub(crate) fn line_indent_before(source: &str, offset: usize) -> &str {

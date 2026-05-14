@@ -2,10 +2,10 @@ use docstring_cst::semantic::{BlockKind, SemanticView};
 use docstring_cst::{DocstringStyle, Source, TextRange};
 
 use crate::{
-    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, Range, SignatureParameter, line_indent_before,
+    AnalysisConfig, Applicability, Diagnostic, DocstringHost, Edit, Fix, SignatureParameter, line_indent_before,
 };
 
-use super::{RuleContext, has_other_section};
+use super::RuleContext;
 
 pub(crate) fn check_parameter_rules(
     source: &Source,
@@ -16,71 +16,12 @@ pub(crate) fn check_parameter_rules(
     let ctx = RuleContext { source, host, semantic };
 
     let mut diagnostics = Vec::new();
-    prm001(&ctx, &mut diagnostics);
-    prm002(&ctx, &mut diagnostics);
     prm003(&ctx, &mut diagnostics);
     prm004(&ctx, &mut diagnostics);
     prm005(&ctx, &mut diagnostics);
-    prm006(&ctx, &mut diagnostics);
     prm007(&ctx, &mut diagnostics);
-    prm009(&ctx, &mut diagnostics);
 
     diagnostics
-}
-
-fn prm001(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
-    let signature_params = documentable_signature_parameters(ctx.host);
-    if ctx.host.name.as_deref() != Some("__init__")
-        && !signature_params.is_empty()
-        && parameter_block(ctx.semantic).is_none()
-        && ctx.semantic.parameters().is_empty()
-        && has_other_section(ctx.semantic, BlockKind::Parameters)
-    {
-        let insert_offset = ctx
-            .semantic
-            .close_quote()
-            .map(|quote| quote.entry_range.start())
-            .unwrap_or(ctx.host.docstring_range.end);
-        diagnostics.push(Diagnostic {
-            rule: "args-section-missing",
-            message: "Missing Args/Parameters section in docstring.".to_string(),
-            range: ctx
-                .semantic
-                .summary()
-                .map(|summary| summary.entry_range.into())
-                .unwrap_or(ctx.host.docstring_range),
-            fix: Some(Fix {
-                edits: vec![Edit::insert(
-                    insert_offset,
-                    args_section_stub(ctx.source, ctx.host, ctx.semantic.style()),
-                )],
-                applicability: Applicability::Unsafe,
-            }),
-            symbol: ctx.host.name.clone(),
-        });
-    }
-}
-
-fn prm002(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
-    if !documentable_signature_parameters(ctx.host).is_empty() {
-        return;
-    }
-    let Some(block) = parameter_block(ctx.semantic) else {
-        return;
-    };
-    diagnostics.push(Diagnostic {
-        rule: "args-section-extra",
-        message: "Function has no parameters but docstring has Args/Parameters section.".to_string(),
-        range: block.name_range.into(),
-        fix: Some(Fix {
-            edits: vec![Edit {
-                range: block.entry_range.into(),
-                replacement: String::new(),
-            }],
-            applicability: Applicability::Safe,
-        }),
-        symbol: ctx.host.name.clone(),
-    });
 }
 
 fn prm003(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
@@ -109,8 +50,11 @@ fn prm004(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
     if let Some(block) = parameter_block(ctx.semantic)
         && !documented.is_empty()
     {
+        if documented_contains_unknown_names(ctx.host, &documented) {
+            return;
+        }
         for signature_param in documentable_signature_parameters(ctx.host) {
-            if signature_param.is_kwarg {
+            if !is_required_named_parameter(signature_param) {
                 continue;
             }
             if documented
@@ -142,14 +86,20 @@ fn prm004(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
 }
 
 fn prm005(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
-    if has_signature_kwargs(ctx.host) {
+    if has_signature_variadics(ctx.host) {
         return;
     }
 
     let signature_names = all_signature_bare_names(ctx.host);
+    if signature_names.is_empty() {
+        return;
+    }
     diagnostics.extend(documented_parameters(ctx.source, ctx.semantic).into_iter().filter_map(
         move |documented_param| {
             let bare_name = bare_parameter_name(&documented_param.name);
+            if !is_plausible_parameter_name(bare_name) {
+                return None;
+            }
             (!signature_names.iter().any(|name| *name == bare_name)).then(|| Diagnostic {
                 rule: "args-param-extra",
                 message: format!("Parameter '{}' not in function signature.", documented_param.name),
@@ -165,50 +115,6 @@ fn prm005(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
             })
         },
     ));
-}
-
-fn prm006(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
-    let documented = documented_parameters(ctx.source, ctx.semantic);
-    let signature_order: Vec<&str> = documentable_signature_parameters(ctx.host)
-        .into_iter()
-        .map(|param| param.bare_name.as_str())
-        .collect();
-    if signature_order.is_empty() || documented.len() < 2 {
-        return;
-    }
-    let documented_in_signature: Vec<&DocumentedParameter> = documented
-        .iter()
-        .filter(|param| signature_order.contains(&bare_parameter_name(&param.name)))
-        .collect();
-    let documented_names: Vec<&str> = documented_in_signature
-        .iter()
-        .map(|param| bare_parameter_name(&param.name))
-        .collect();
-    let expected: Vec<&str> = signature_order
-        .iter()
-        .copied()
-        .filter(|name| documented_names.contains(name))
-        .collect();
-    if documented_names == expected {
-        return;
-    }
-
-    let fix = reorder_parameters_fix(ctx.source, &documented, &signature_order);
-    for (index, (documented_param, expected_name)) in documented_in_signature.iter().zip(expected.iter()).enumerate() {
-        let doc_name = bare_parameter_name(&documented_param.name);
-        if doc_name == *expected_name {
-            continue;
-        }
-        diagnostics.push(Diagnostic {
-            rule: "args-param-out-of-order",
-            message: format!(
-                "Parameter '{doc_name}' is in the wrong order (expected '{expected_name}' at this position)."
-            ),
-            range: documented_param.name_range.into(),
-            fix: (index == 0).then(|| fix.clone()),
-            symbol: ctx.host.name.clone(),
-        });
-    }
 }
 
 fn prm007(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
@@ -232,39 +138,6 @@ fn prm007(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
         } else {
             seen.push(documented_param.name.as_str());
         }
-    }
-}
-
-fn prm009(ctx: &RuleContext<'_>, diagnostics: &mut Vec<Diagnostic>) {
-    let documented = documented_parameters(ctx.source, ctx.semantic);
-    for documented_param in &documented {
-        if documented_param.name.starts_with('*') {
-            continue;
-        }
-        let Some(signature_param) = ctx
-            .host
-            .signature_parameters
-            .iter()
-            .find(|param| param.bare_name == documented_param.name && (param.is_vararg || param.is_kwarg))
-        else {
-            continue;
-        };
-        diagnostics.push(Diagnostic {
-            rule: "args-vararg-marker-missing",
-            message: format!(
-                "Docstring parameter '{}' should be '{}'.",
-                documented_param.name, signature_param.name
-            ),
-            range: documented_param.name_range.into(),
-            fix: Some(Fix {
-                edits: vec![Edit {
-                    range: documented_param.name_range.into(),
-                    replacement: signature_param.name.clone(),
-                }],
-                applicability: Applicability::Safe,
-            }),
-            symbol: ctx.host.name.clone(),
-        });
     }
 }
 
@@ -306,8 +179,26 @@ pub(crate) fn documentable_signature_parameters(host: &DocstringHost) -> Vec<&Si
         .collect()
 }
 
-fn has_signature_kwargs(host: &DocstringHost) -> bool {
-    host.signature_parameters.iter().any(|param| param.is_kwarg)
+fn is_required_named_parameter(param: &SignatureParameter) -> bool {
+    !param.is_vararg && !param.is_kwarg && param.default_value.is_none()
+}
+
+fn documented_contains_unknown_names(host: &DocstringHost, documented: &[DocumentedParameter]) -> bool {
+    let signature_names = host
+        .signature_parameters
+        .iter()
+        .map(|param| param.bare_name.as_str())
+        .collect::<Vec<_>>();
+    documented
+        .iter()
+        .map(|param| bare_parameter_name(&param.name))
+        .any(|name| !signature_names.contains(&name))
+}
+
+fn has_signature_variadics(host: &DocstringHost) -> bool {
+    host.signature_parameters
+        .iter()
+        .any(|param| param.is_vararg || param.is_kwarg)
 }
 
 fn all_signature_bare_names(host: &DocstringHost) -> Vec<&str> {
@@ -321,35 +212,12 @@ fn bare_parameter_name(name: &str) -> &str {
     name.trim_start_matches('*')
 }
 
-pub(crate) fn args_section_stub(source: &Source, host: &DocstringHost, style: DocstringStyle) -> String {
-    let indent = line_indent_before(source.source(), host.docstring_range.start);
-    let params = documentable_signature_parameters(host);
-    match style {
-        DocstringStyle::Numpy => {
-            let mut stub = format!("\n\n{indent}Parameters\n{indent}----------");
-            for param in params {
-                if let Some(annotation) = &param.annotation {
-                    stub.push_str(&format!("\n{indent}{} : {annotation}", param.name));
-                } else {
-                    stub.push_str(&format!("\n{indent}{}", param.name));
-                }
-            }
-            stub.push_str(&format!("\n{indent}"));
-            stub
-        }
-        _ => {
-            let mut stub = format!("\n\n{indent}Args:");
-            for param in params {
-                if let Some(annotation) = &param.annotation {
-                    stub.push_str(&format!("\n{indent}    {} ({annotation}):", param.name));
-                } else {
-                    stub.push_str(&format!("\n{indent}    {}:", param.name));
-                }
-            }
-            stub.push_str(&format!("\n{indent}"));
-            stub
-        }
-    }
+fn is_plausible_parameter_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == b'_') && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn parameter_entry_append_text(
@@ -374,28 +242,5 @@ fn parameter_entry_append_text(
                 format!("\n{header_indent}    {}:", param.name)
             }
         }
-    }
-}
-
-fn reorder_parameters_fix(source: &Source, documented: &[DocumentedParameter], signature_order: &[&str]) -> Fix {
-    let mut sorted = documented.to_vec();
-    sorted.sort_by_key(|param| {
-        signature_order
-            .iter()
-            .position(|name| *name == bare_parameter_name(&param.name))
-            .unwrap_or(signature_order.len())
-    });
-    let start = documented.first().map(|param| param.entry_range.start()).unwrap_or(0);
-    let end = documented.last().map(|param| param.entry_range.end()).unwrap_or(start);
-    let replacement = sorted
-        .iter()
-        .filter_map(|param| source.slice(param.entry_range))
-        .collect::<String>();
-    Fix {
-        edits: vec![Edit {
-            range: Range { start, end },
-            replacement,
-        }],
-        applicability: Applicability::Unsafe,
     }
 }

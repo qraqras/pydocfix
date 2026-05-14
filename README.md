@@ -2,7 +2,7 @@
 
 `pydocsync` is a fast Python signature-docstring synchronizer.
 
-It checks only structural drift between code and docstrings: arguments, return sections, and yield sections. It is intentionally not a general docstring linter. It does not enforce prose style, summary punctuation, type annotation policy, class docstring policy, raises sections, inline suppression, or baselines.
+It checks only high-confidence structural drift between code and docstrings: documented argument entries against function signatures and documented return entries against clear value-returning behavior. It is intentionally not a general docstring linter. It does not enforce prose style, summary punctuation, type annotation policy, class docstring policy, return sections, yield sections, raises sections, inline suppression, or baselines.
 
 ## Install
 
@@ -38,7 +38,7 @@ Options:
 --jobs <N>
 ```
 
-`--fix` applies safe fixes by default. `--unsafe-fixes` also allows generated section stubs and other edits that may need human review.
+`--fix` applies safe fixes by default. `--unsafe-fixes` also allows generated entry edits that may need human review.
 
 ## Configuration
 
@@ -46,7 +46,7 @@ Configuration is optional. When present, `pydocsync` reads `[tool.pydocsync]` fr
 
 ```toml
 [tool.pydocsync]
-ignore = ["yields"]
+ignore = ["args-param-extra"]
 exclude = ["build/**", "tests/fixtures/**"]
 ```
 
@@ -58,24 +58,18 @@ Rule IDs are readable and stable:
 
 | Rule | Fix | Description |
 | --- | --- | --- |
-| `args-section-missing` | unsafe | Signature has documentable arguments but the docstring has no Args/Parameters section |
-| `args-section-extra` | safe | Docstring has an Args/Parameters section but the signature has no documentable arguments |
 | `args-receiver-documented` | safe | Docstring documents `self` or `cls` |
-| `args-param-missing` | unsafe | Signature argument is missing from the docstring |
-| `args-param-extra` | unsafe | Docstring argument is not in the signature |
-| `args-param-out-of-order` | unsafe | Docstring argument order differs from the signature |
+| `args-param-missing` | unsafe | Required signature argument is missing from an existing Args/Parameters section |
+| `args-param-extra` | unsafe | Docstring argument is not in a non-variadic function signature |
 | `args-param-duplicate` | unsafe | Docstring documents the same argument more than once |
-| `args-vararg-marker-missing` | safe | Docstring omits `*` or `**` for `*args` or `**kwargs` |
-| `returns-section-missing` | unsafe | Function returns a value but the docstring has no Returns section |
-| `returns-section-extra` | safe | Docstring has a Returns section but the function returns no value |
-| `yields-section-missing` | unsafe | Generator yields values but the docstring has no Yields section |
-| `yields-section-extra` | safe | Docstring has a Yields section but the function is not a generator |
+| `returns-entry-missing` | none | Existing Returns section has no return entry for a clearly value-returning function |
+| `returns-entry-extra` | none | Return entry is not matched by a value return or meaningful return annotation |
 
-`--ignore` and `ignore` accept exact rule IDs or group prefixes. For example, `args-section` ignores both argument section rules, and `yields` ignores every `yields-*` rule.
+`--ignore` and `ignore` accept exact rule IDs or group prefixes. For example, `args` ignores every `args-*` rule and `returns` ignores every `returns-*` rule.
 
-Missing-section rules are intentionally lenient: they fire only when the docstring already uses another structured section. A short summary-only docstring is left alone.
+Rules intentionally prefer false negatives over false positives. pydocsync does not require or remove Args/Parameters or Returns sections, does not enforce parameter order, does not require `*args`/`**kwargs` spelling in docstrings, and treats variadic signatures conservatively. Return entries documenting `None` are treated as intentional and are not reported as extra.
 
-Raises sections are intentionally ignored. Exception behavior is often part of an API contract rather than something pydocsync can infer reliably from local syntax.
+Return, Yield, and Raises sections are intentionally ignored at the section level. Generator behavior and exception behavior are often part of an API contract rather than something pydocsync can infer reliably from local syntax.
 
 ## Scope
 

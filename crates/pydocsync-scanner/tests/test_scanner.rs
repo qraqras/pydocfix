@@ -72,6 +72,24 @@ fn records_signature_parameter_facts() {
 }
 
 #[test]
+fn records_parameters_after_signature_comments() {
+    let source = r#"def example(
+    first=None,  # first group
+    second=None,
+    third=None,  # final group
+    fourth=None,
+):
+    """Docs."""
+"#;
+
+    let summary = summarize_python(source);
+    let function = &summary.items[0];
+
+    let names: Vec<&str> = function.parameters.iter().map(|param| param.name.as_str()).collect();
+    assert_eq!(names, vec!["first", "second", "third", "fourth"]);
+}
+
+#[test]
 fn records_async_yield_and_method_state() {
     let source = r#"class Service:
     @classmethod

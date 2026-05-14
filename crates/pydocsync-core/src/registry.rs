@@ -7,18 +7,12 @@ pub struct RuleMetadata {
 
 /// Built-in rules known to the Rust engine and CLI.
 pub static RULES: &[RuleMetadata] = &[
-    rule("args-section-missing"),
-    rule("args-section-extra"),
     rule("args-receiver-documented"),
     rule("args-param-missing"),
     rule("args-param-extra"),
-    rule("args-param-out-of-order"),
     rule("args-param-duplicate"),
-    rule("args-vararg-marker-missing"),
-    rule("returns-section-missing"),
-    rule("returns-section-extra"),
-    rule("yields-section-missing"),
-    rule("yields-section-extra"),
+    rule("returns-entry-missing"),
+    rule("returns-entry-extra"),
 ];
 
 const fn rule(code: &'static str) -> RuleMetadata {

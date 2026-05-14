@@ -78,7 +78,7 @@ mod tests {
             diff: false,
             unsafe_fixes: false,
             jobs: None,
-            ignore: vec!["returns".to_string()],
+            ignore: vec!["args-param-extra".to_string()],
             exclude: Vec::new(),
             paths: vec![PathBuf::from("src")],
         };
@@ -89,15 +89,12 @@ mod tests {
 
         let settings = ResolvedSettings::resolve(cli_args, project_config);
 
-        assert_eq!(settings.rule_filter.ignore, vec!["args", "returns"]);
+        assert_eq!(settings.rule_filter.ignore, vec!["args", "args-param-extra"]);
         assert_eq!(
             settings
-                .filter_diagnostics(vec![
-                    diagnostic("args-param-missing"),
-                    diagnostic("yields-section-extra")
-                ])
+                .filter_diagnostics(vec![diagnostic("args-param-missing"), diagnostic("args-param-extra")])
                 .len(),
-            1
+            0
         );
     }
 }

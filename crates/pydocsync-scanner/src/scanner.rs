@@ -263,6 +263,7 @@ impl<'a> Scanner<'a> {
                 continue;
             }
             match self.bytes[pos] {
+                b'#' => pos = self.line_end_from(pos),
                 b'(' | b'[' | b'{' => depth += 1,
                 b')' | b']' | b'}' => depth = depth.saturating_sub(1),
                 b',' if depth == 0 => {
@@ -278,7 +279,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn push_parameter_record(&self, start: usize, end: usize, is_method: bool, parameters: &mut Vec<ParameterRecord>) {
-        let mut start = self.skip_ws(start, end);
+        let mut start = self.skip_ws_and_comments(start, end);
         let end = self.trim_end_ws(start, end);
         if start >= end {
             return;
@@ -496,6 +497,16 @@ impl<'a> Scanner<'a> {
             pos += 1;
         }
         pos
+    }
+
+    fn skip_ws_and_comments(&self, mut pos: usize, end: usize) -> usize {
+        loop {
+            pos = self.skip_ws(pos, end);
+            if pos >= end || self.bytes[pos] != b'#' {
+                return pos;
+            }
+            pos = self.line_end_from(pos);
+        }
     }
 
     fn trim_end_ws(&self, start: usize, mut end: usize) -> usize {
